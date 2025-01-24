@@ -6,6 +6,8 @@ version = 4
 name = "Ranal"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "chrono",
  "git2",
  "octocrab",
  "secrecy",

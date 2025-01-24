@@ -1,15 +1,40 @@
-use git2::{Commit, Error, Oid, Repository};
+mod github;
+mod model;
+
+use git2::{Error, Oid, Repository};
 use octocrab::{models, params, Octocrab};
-use octocrab::auth::Auth::UserAccessToken;
 use octocrab::models::issues::Issue;
+use octocrab::params::State::{Closed};
 use secrecy::SecretString;
 use serde::Serialize;
+use Ranal::git;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     println!("Hello, world!");
-    //octocrab_playground().await.expect("octocrab_playground failed");
-    git2_playground().expect("git2_playground failed");
+    // octocrab_playground().await.expect("octocrab_playground failed");
+    // git2_playground().expect("git2_playground failed");
+
+    //init
+    let github_repo = github::GitHubApi::new("rust-lang".to_string(), "team".to_string(), load_config())
+        .expect("failed to create github repo");
+    let repo = git::Repo::init("test_repos/team");
+
+    // pull requests
+    let prs = github_repo.get_pull_requests(Closed).await?;
+    println!("PRs: {:#?}", prs.iter().take(5).collect::<Vec<_>>());
+    //let commit_id = prs.first().unwrap().get_commit_id()?;
+
+    // get changed files by commit id TODO: some commit ids inst in git working tree
+    let commit_id = Oid::from_str("f3569e931be9b92fae2b3237d1073795d753a6f9")?;
+    let files = repo.get_diff_files(commit_id);
+    println!("files: {:#?}", files);
+
+    // TODO: wrap pull requests and diff files into one function
+
+    // TODO: save it all to the database
+
+    Ok(())
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -110,7 +135,7 @@ async fn octocrab_playground() -> octocrab::Result<()> {
         .list()
         .creator("Kobzol")
         .state(params::State::All)
-        .per_page(3)
+        .per_page(100)
         .send()
         .await?;
 
@@ -130,6 +155,19 @@ async fn octocrab_playground() -> octocrab::Result<()> {
     for issue in issue {
         println!("#{}: {} {}\nauthor(s): {:?}\nlabels: {:?}\n", issue.number, issue.title, issue.body_text.clone().unwrap_or("No body".to_string()), issue.user.login, issue.labels, );
     }
+
+    let pr = octocrab.pulls("rust-lang", "team")
+        .list()
+        .state(params::State::All)
+        .per_page(100)
+        .send()
+        .await?;
+
+    let result = octocrab.get_page::<models::pulls::PullRequest>(&pr.next).await?;
+    println!("result: {:?}", result.clone().unwrap().items.first().unwrap().url);
+    let pr = result.unwrap().items;
+    let files = pr.first().unwrap().changed_files;
+
 
     Ok(())
 }
