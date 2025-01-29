@@ -1,8 +1,11 @@
+use anyhow::Context;
 use octocrab::{params, Octocrab};
 use octocrab::models::issues::Issue;
 use secrecy::SecretString;
 use ::Ranal::model::PullRequest;
-use Ranal::model::FilesState;
+use log::log;
+use octocrab::models::IssueState;
+use Ranal::model::{FilesState, PullRequestStatus, User};
 
 pub struct GitHubApi {
     owner: String,
@@ -25,27 +28,20 @@ impl GitHubApi {
         })
     }
 
-    pub async fn get_issues(&self) -> anyhow::Result<Vec<Issue>> {
+    pub async fn get_issues(&self, name: String, state: params::State) -> anyhow::Result<Vec<Issue>> {
         let page = self.octocrab.issues(self.owner.clone(), self.repository.clone())
             .list()
-            .creator("Kobzol")
-            .state(params::State::All)
+            .creator(name)
+            .state(state)
             .per_page(100)
             .send()
             .await?;
 
         println!("Found {} issues, no of pages: {:?}, total count: {:?}", page.items.len(), page.number_of_pages(), page.total_count);
 
-        // let results = octocrab.all_pages::<models::issues::Issue>(page).await?;
-
         let result = self.octocrab.get_page::<Issue>(&page.next).await?;
         println!("result: {:?}", result.clone().unwrap().items.first().unwrap().url);
         let issues = result.unwrap().items;
-        // println!("there is overall {} issues", results.len());
-
-        // for issue in results.iter().take(5) {
-        //     println!("#{}: {} {}\nauthor(s): {:?}\nlabels: {:?}\n", issue.number, issue.title, issue.body_text.clone().unwrap_or("No body".to_string()), issue.user.login, issue.labels, );
-        // }
 
         for issue in issues.iter() {
             println!("#{}: {} {}\nauthor(s): {:?}\nlabels: {:?}\n", issue.number, issue.title, issue.body_text.clone().unwrap_or("No body".to_string()), issue.user.login, issue.labels, );
@@ -53,29 +49,42 @@ impl GitHubApi {
         Ok(issues)
     }
 
-    pub async fn get_pull_requests(&self, state: params::State) -> anyhow::Result<Vec<PullRequest>> {
-        let pr = self.octocrab.pulls(self.owner.clone(), self.repository.clone())
+    pub async fn get_all_pull_requests(&self, state: params::State) -> anyhow::Result<Vec<PullRequest>> {
+        let pr = self.octocrab
+            .pulls(self.owner.clone(), self.repository.clone())
             .list()
             .state(state)
             .per_page(100)
             .send()
-            .await?;
+            .await
+            .context(format!("Failed to get pull requests for {}/{}", self.owner, self.repository))?;
 
-        println!("Found {} pull requests, no of pages: {:?}", pr.items.len(), pr.number_of_pages());
+        log::info!("Found {} pull requests, no of pages: {:?}", pr.items.len(), pr.number_of_pages());
 
-        // let result = self.octocrab.get_page::<octocrab::models::pulls::PullRequest>(&pr.next).await?;
-        // println!("result: {:?}", result.clone().unwrap().items.first().unwrap().url);
-        // let pr = result.unwrap().items;
 
-        let pr = self.octocrab.all_pages::<octocrab::models::pulls::PullRequest>(pr).await?;
+        log::debug!("Requesting all {:?} pages of pull requests", pr.number_of_pages());
+        let pr = self.octocrab.all_pages::<octocrab::models::pulls::PullRequest>(pr).await.context("Failed to request all pull requests")?;
+        log::debug!("Received all pull requests ({})", pr.len());
 
         let mut parsed_prs: Vec<PullRequest> = Vec::new();
         for pr in pr {
             let parsed = PullRequest {
-                commit_id: pr.head.sha.clone(),
+                pr_number: pr.number,
                 title: pr.title.clone(),
-                author: pr.user.unwrap().login,
-                state: pr.state,
+                author: User::from_user(*pr.user.expect("User not found")),
+                state: match (pr.state, pr.merged_at) {
+                    (Some(IssueState::Open), _) => PullRequestStatus::Open,
+                    (Some(IssueState::Closed), None) => PullRequestStatus::Closed {
+                        closed_at: pr.closed_at.expect("Missing PR close date"),
+                    },
+                    (Some(IssueState::Closed), Some(closed_at)) => PullRequestStatus::Merged {
+                        closed_at,
+                        merge_sha: pr.merge_commit_sha.expect("Missing merge commit SHA"),
+                    },
+                    (s, merged_at) => {
+                        panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
+                    }
+                },
                 description: pr.body.clone(),
                 created_at: pr.created_at,
                 updated_at: pr.updated_at,

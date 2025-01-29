@@ -6,29 +6,37 @@ use octocrab::{models, params, Octocrab};
 use octocrab::models::issues::Issue;
 use octocrab::params::State::{Closed};
 use secrecy::SecretString;
-use serde::Serialize;
+
 use Ranal::git;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("Hello, world!");
-    // octocrab_playground().await.expect("octocrab_playground failed");
-    // git2_playground().expect("git2_playground failed");
+    env_logger::init();
+
+    log::info!("Hello, world!");
 
     //init
     let github_repo = github::GitHubApi::new("rust-lang".to_string(), "team".to_string(), load_config())
         .expect("failed to create github repo");
     let repo = git::Repo::init("test_repos/team");
 
-    // pull requests
-    let prs = github_repo.get_pull_requests(Closed).await?;
-    println!("PRs: {:#?}", prs.iter().take(5).collect::<Vec<_>>());
-    //let commit_id = prs.first().unwrap().get_commit_id()?;
 
-    // get changed files by commit id TODO: some commit ids inst in git working tree
-    let commit_id = Oid::from_str("f3569e931be9b92fae2b3237d1073795d753a6f9")?;
-    let files = repo.get_diff_files(commit_id);
-    println!("files: {:#?}", files);
+    // pull requests
+    let prs = github_repo.get_all_pull_requests(Closed).await?;
+    log::info!("PRs: {:#?}", prs.iter().take(5).collect::<Vec<_>>());
+
+
+    //let commit_id = Oid::from_str("f3569e931be9b92fae2b3237d1073795d753a6f9")?;
+    let oid = match prs.first().unwrap().merge_commit_id() {
+        Some(oid) => oid,
+        None => {
+            log::warn!("Cannot find commit id for PR: {:?}", prs.first().unwrap());
+            return Ok(());
+        }
+    };
+    let files = repo.modified_files(oid)?.unwrap();
+    log::info!("files: {:#?}", files);
+
 
     // TODO: wrap pull requests and diff files into one function
 
@@ -166,7 +174,7 @@ async fn octocrab_playground() -> octocrab::Result<()> {
     let result = octocrab.get_page::<models::pulls::PullRequest>(&pr.next).await?;
     println!("result: {:?}", result.clone().unwrap().items.first().unwrap().url);
     let pr = result.unwrap().items;
-    let files = pr.first().unwrap().changed_files;
+    let _ = pr.first().unwrap().changed_files;
 
 
     Ok(())

@@ -1,13 +1,40 @@
 use std::fmt::Display;
 use git2::Oid;
-use octocrab::models::IssueState;
+use octocrab::models::{Author};
 
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct User {
+    pub login: String,
+    pub id: octocrab::models::UserId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum PullRequestStatus {
+    Open,
+    Closed {
+        closed_at: chrono::DateTime<chrono::Utc>,
+    },
+    Merged {
+        closed_at: chrono::DateTime<chrono::Utc>,
+        merge_sha: String,
+    },
+}
+
+impl User {
+    pub fn new(login: String, id: octocrab::models::UserId) -> Self {
+        Self { login, id }
+    }
+    pub fn from_user(author: Author) -> Self {
+        Self { login: author.login, id: author.id }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PullRequest {
-    pub commit_id: String,
-    pub author: String,
-    pub state: Option<IssueState>,
+    pub pr_number: u64,
+    pub author: User,
+    pub state: PullRequestStatus,
     pub title: Option<String>,
     pub description: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -32,23 +59,23 @@ impl Display for FilesState {
 }
 
 impl PullRequest {
-    pub fn get_commit_id(&self) -> anyhow::Result<Oid> {
-        match Oid::from_str(&self.commit_id) {
-            Ok(oid) => Ok(oid),
-            Err(e) => Err(anyhow::anyhow!("failed to parse commit_id: {}", e))
+    pub fn merge_commit_id(&self) -> Option<Oid> {
+        match &self.state {
+            PullRequestStatus::Merged { merge_sha, .. } => {
+                Oid::from_str(merge_sha).ok()
+            }
+            _ => None
         }
     }
 }
 
 impl Display for PullRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "commit_id: {}, \
-        author: {}, \
+        write!(f, "author: {:?}, \
         state: {:?}, \
         title: {:?}, \
         description: {}, \
         files: {:?}",
-               self.commit_id,
                self.author,
                self.state,
                self.title.clone().unwrap_or("No title".to_string()),
