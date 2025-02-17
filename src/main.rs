@@ -1,12 +1,17 @@
 mod github;
 mod model;
 
+use std::collections::HashSet;
+use std::fmt::format;
+use anyhow::Context;
 use git2::{Error, Oid, Repository};
 use octocrab::{models, params, Octocrab};
 use octocrab::models::issues::Issue;
 use octocrab::params::State::{Closed};
 use secrecy::SecretString;
-
+use sqlx::sqlite::SqlitePoolOptions;
+use Ranal::database_connector;
+use Ranal::database_connector::DatabaseConnection;
 use Ranal::git;
 
 #[tokio::main]
@@ -22,10 +27,11 @@ async fn main() -> anyhow::Result<()> {
 
 
     // pull requests
-    let prs = github_repo.get_all_pull_requests(Closed).await?;
+    let mut prs = github_repo.get_all_pull_requests(Closed).await?;
     log::info!("PRs: {:#?}", prs.iter().take(5).collect::<Vec<_>>());
 
 
+    // get files from one PR
     //let commit_id = Oid::from_str("f3569e931be9b92fae2b3237d1073795d753a6f9")?;
     let oid = match prs.first().unwrap().merge_commit_id() {
         Some(oid) => oid,
@@ -34,13 +40,68 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
     };
-    let files = repo.modified_files(oid)?.unwrap();
-    log::info!("files: {:#?}", files);
+    let files_first = repo.modified_files(oid)?.unwrap_or(HashSet::new());
+    log::info!("files: {:#?}", files_first);
 
 
     // TODO: wrap pull requests and diff files into one function
 
     // TODO: save it all to the database
+
+    //TODO do i need to do benchmarks for sql and git2 for files?
+    // wouldnt be better to save it straight after fetch to the structure?
+
+    let connection_string = dotenvy::var("DATABASE_URL")
+        .context("Cannot load environment variable DATABASE_URL from .env file")?;
+    let pool = SqlitePoolOptions::new().connect(&connection_string).await?;
+    let db = DatabaseConnection::new(pool).await;
+
+    // edit data to be ready for database insert
+    for pr in &prs {
+        let oid = match pr.merge_commit_id() {
+            Some(oid) => oid,
+            None => {
+                log::warn!("Cannot find commit id for PR: {:?}", pr);
+                continue;
+            }
+        };
+        let files = repo.modified_files(oid)?.unwrap().into_iter().collect();
+        log::debug!("files: {:#?}", files);
+
+        // save to database
+        db.upsert_user(pr.author.clone()).await?;
+        db.save_files_to_pr(pr.pr_number, files).await?;
+    }
+    log::info!("Data ({}) saved to database", prs.len());
+
+
+    // retreive all data from database
+    let start = std::time::Instant::now();
+    let pull_requests = db.get_pull_requests().await;
+    let elapsed = start.elapsed();
+
+    log::info!("Retrieved {} pull requests from database in {:?}", pull_requests.len(), elapsed);
+
+
+    let start2 = std::time::Instant::now();
+    for pr in prs.iter_mut() {
+        let oid = match pr.merge_commit_id() {
+            Some(oid) => oid,
+            None => {
+                log::warn!("Cannot find commit id for PR: {:?}", pr);
+                continue;
+            }
+        };
+        let files = repo.modified_files(oid)?.unwrap().into_iter().collect();
+        pr.files = Ranal::model::FilesState::Fetched { files };
+    }
+    let elapsed2 = start2.elapsed();
+
+    log::info!("Retrieved {} pull requests via checking modified files in {:?}", prs.len(), elapsed2);
+
+
+    //IT IS 8ms VS 700ms for 1600 PRs (700ms was also with console output)
+
 
     Ok(())
 }

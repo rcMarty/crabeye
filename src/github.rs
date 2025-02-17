@@ -59,7 +59,7 @@ impl GitHubApi {
             .await
             .context(format!("Failed to get pull requests for {}/{}", self.owner, self.repository))?;
 
-        log::info!("Found {} pull requests, no of pages: {:?}", pr.items.len(), pr.number_of_pages());
+        log::info!("Found less than {} pull requests, no of pages: {:?}", pr.items.len() * pr.number_of_pages().unwrap_or(0) as usize, pr.number_of_pages());
 
 
         log::debug!("Requesting all {:?} pages of pull requests", pr.number_of_pages());
@@ -71,7 +71,7 @@ impl GitHubApi {
             let parsed = PullRequest {
                 pr_number: pr.number,
                 title: pr.title.clone(),
-                author: User::from_user(*pr.user.expect("User not found")),
+                author: User::from_author(*pr.user.expect("User not found")),
                 state: match (pr.state, pr.merged_at) {
                     (Some(IssueState::Open), _) => PullRequestStatus::Open,
                     (Some(IssueState::Closed), None) => PullRequestStatus::Closed {
