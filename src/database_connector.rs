@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::hash::Hash;

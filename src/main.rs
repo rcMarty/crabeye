@@ -1,3 +1,5 @@
+#![allow(unused_imports, unused)]
+
 mod github;
 mod model;
 
@@ -10,9 +12,9 @@ use octocrab::models::issues::Issue;
 use octocrab::params::State::{Closed};
 use secrecy::SecretString;
 use sqlx::sqlite::SqlitePoolOptions;
-use Ranal::database_connector;
-use Ranal::database_connector::DatabaseConnection;
-use Ranal::git;
+use ranal::database_connector;
+use ranal::database_connector::DatabaseConnection;
+use ranal::git;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -93,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
         let files = repo.modified_files(oid)?.unwrap().into_iter().collect();
-        pr.files = Ranal::model::FilesState::Fetched { files };
+        pr.files = ranal::model::FilesState::Fetched { files };
     }
     let elapsed2 = start2.elapsed();
 

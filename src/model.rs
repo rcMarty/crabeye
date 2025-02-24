@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use std::fmt::Display;
 use git2::Oid;
 use octocrab::models::{Author};

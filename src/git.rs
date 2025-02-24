@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::collections::HashSet;
 use std::fmt::format;
 use anyhow::Context;

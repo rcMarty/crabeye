@@ -1,11 +1,11 @@
+#![allow(unused)]
 use anyhow::Context;
 use octocrab::{params, Octocrab};
 use octocrab::models::issues::Issue;
 use secrecy::SecretString;
-use ::Ranal::model::PullRequest;
 use log::log;
 use octocrab::models::IssueState;
-use Ranal::model::{FilesState, PullRequestStatus, User};
+use ::ranal::model::{FilesState, PullRequestStatus, User, PullRequest};
 
 pub struct GitHubApi {
     owner: String,
