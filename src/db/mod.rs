@@ -3,7 +3,7 @@ pub mod model;
 // src/db/mod.rs
 use crate::db::model::pr_event::{FileActivity, PrEvent};
 use anyhow::Result;
-use sqlx::{migrate::MigrateDatabase, Pool, Sqlite, SqlitePool};
+use sqlx::{Pool, Sqlite, SqlitePool};
 
 pub struct Database {
     pub pool: Pool<Sqlite>,

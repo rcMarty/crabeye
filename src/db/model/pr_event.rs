@@ -5,7 +5,7 @@ use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo};
 use sqlx::{Encode, Sqlite, Type};
 use std::fmt::Display;
 
-#[derive(Debug, sqlx::FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PrEvent {
     pub pr_number: i64,
     pub state: PullRequestStatus,

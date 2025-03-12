@@ -1,15 +1,14 @@
+use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
+use crate::db::Database;
 use crate::git::git::Repo;
 use crate::git::github::GitHubApi;
-use secrecy::SecretString;
-use std::path::Path;
 use git2::Oid;
 use octocrab::params::State::All;
-use crate::db::Database;
-use crate::db::model::pr_event::FileActivity;
+use secrecy::SecretString;
+use std::path::Path;
 
 pub mod git;
 pub mod github;
-
 
 pub struct Analyze {
     repo: Repo,
@@ -18,10 +17,23 @@ pub struct Analyze {
 }
 
 impl Analyze {
-    pub fn init(repository_name: String, owner: String, token: SecretString, database: Database) -> Self {
-        let repo = Repo::init(Analyze::url(repository_name.clone(), owner.clone()).as_str(), Path::new("./test_repos")).unwrap();
+    pub fn init(
+        repository_name: String,
+        owner: String,
+        token: SecretString,
+        database: Database,
+    ) -> Self {
+        let repo = Repo::init(
+            Analyze::url(repository_name.clone(), owner.clone()).as_str(),
+            Path::new("./test_repos"),
+        )
+        .unwrap();
         let github = GitHubApi::new(owner, repository_name, token).unwrap();
-        Self { repo, github, database }
+        Self {
+            repo,
+            github,
+            database,
+        }
     }
 
     fn url(repository_name: String, owner: String) -> String {
@@ -36,13 +48,15 @@ impl Analyze {
                 log::error!("Error: {:?}", res);
             }
 
-            let files = self.repo.modified_files(
-                Oid::from_str(
-                    pr.pr_number
-                        .to_string()
-                        .as_str()
-                )?
-            );
+            let sha = match pr.state {
+                PullRequestStatus::Merged { merge_sha } => merge_sha,
+                _ => {
+                    log::warn!("PR #{} is not merged", pr.pr_number);
+                    continue;
+                }
+            };
+
+            let files = self.repo.modified_files(Oid::from_str(sha.as_str())?);
 
             if files.is_err() {
                 log::error!("Error while getting modified files: {:#?}", files);

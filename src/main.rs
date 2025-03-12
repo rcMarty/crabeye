@@ -5,21 +5,11 @@ mod git;
 mod monitoring;
 
 use crate::db::Database;
-use anyhow::Context;
-use git2::{Error, Oid, Repository};
-use octocrab::models::issues::Issue;
-use octocrab::params::State::Closed;
-use octocrab::{models, params, Octocrab};
-use secrecy::SecretString;
-use sqlx::sqlite::SqlitePoolOptions;
-use std::collections::HashSet;
-use std::fmt::format;
 use dotenvy::dotenv;
-use log::LevelFilter;
+
 use log::LevelFilter::Debug;
 use crate::config::Config;
 use crate::git::Analyze;
-use crate::git::github::GitHubApi;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

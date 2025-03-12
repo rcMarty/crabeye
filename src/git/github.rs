@@ -113,7 +113,7 @@ impl GitHubApi {
                         panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
                     }
                 },
-                timestamp: DateTime::from(pr.created_at.unwrap()),
+                timestamp: pr.created_at.unwrap(),
             };
             parsed_prs.push(parsed);
         }
