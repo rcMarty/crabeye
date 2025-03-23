@@ -23,18 +23,30 @@ impl Database {
     }
 
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
+        let timestamp = event.get_timestamp();
+        let merge_sha = event.get_merge_sha();
+        let author_id = event.author_id.0 as i64;
         sqlx::query!(
-            r#"INSERT INTO pr_event_log (pr, state, timestamp) VALUES (?, ?, ?)"#,
+            r#"
+INSERT INTO pr_event_log (pr, state,timestamp, merge_sha, author_id) 
+VALUES (?, ?,?,?,?)
+"#,
             event.pr_number,
             event.state,
-            event.timestamp
+            timestamp,
+            merge_sha,
+            author_id
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    pub async fn get_pr_state_at(&self, pr: i64, timestamp: chrono::DateTime<chrono::Utc>) -> Result<Option<String>> {
+    pub async fn get_pr_state_at(
+        &self,
+        pr: i64,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<String>> {
         let record = sqlx::query!(
             r#"SELECT state FROM pr_event_log 
                WHERE pr = ? AND timestamp <= ?
@@ -43,8 +55,8 @@ impl Database {
             pr,
             timestamp
         )
-            .fetch_optional(&self.pool)
-            .await?;
+        .fetch_optional(&self.pool)
+        .await?;
 
         Ok(record.map(|r| r.state))
     }
@@ -59,8 +71,8 @@ impl Database {
             activity.user_login,
             activity.timestamp
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

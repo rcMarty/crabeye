@@ -24,3 +24,6 @@ dotenvy = "0.15.7"
 # logging
 log = { version = "0.4.25", features = ["kv", "kv_serde", "kv_std", ] }
 env_logger = "0.11.7"
+indicatif = "0.17.11"
+indicatif-log-bridge = "0.2.3" # logging and progress bar via indicatif
+lazy_static = "1.5.0" # hack for progress bars 

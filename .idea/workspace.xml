@@ -7,15 +7,14 @@
     <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/ranal.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/Ranal.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/sqldialects.xml" beforeDir="false" />
+    <list default="true" id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="refactor: enhance logging and update pull request handling">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20250312122823_init.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151108_init.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20250312122852_add_indexes.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151110_add_indexes.sql" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/model/pr_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/model/pr_event.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/git/git.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/git.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/git/github.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/github.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/git/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
@@ -32,28 +31,28 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "rcMarty"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;rcMarty&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "git@github.com:rcMarty/Ranal.git",
-    "accountId": "e95357ae-f6f7-4958-9bfb-a269ab26026c"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;git@github.com:rcMarty/Ranal.git&quot;,
+    &quot;accountId&quot;: &quot;e95357ae-f6f7-4958-9bfb-a269ab26026c&quot;
   }
-}]]></component>
+}</component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="1O86TlbC" />
   </component>
   <component name="OptimizeOnSaveOptions">
     <option name="myRunOnSave" value="true" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "customColor": "",
-  "associatedIndex": 1
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 1
+}</component>
   <component name="ProjectId" id="2uE6gpcqxyalw60M4Q3BAA1KWII" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -72,8 +71,9 @@
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
     "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
     "org.rust.first.attach.projects": "true",
-    "settings.editor.selected.configurable": "actions.on.save",
+    "settings.editor.selected.configurable": "preferences.keymap",
     "vue.rearranger.settings.migration": "true"
   },
   "keyToStringList": {
@@ -134,11 +134,30 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1741801501821</updated>
-      <workItem from="1741801503248" duration="999000" />
+      <workItem from="1741801503248" duration="2499000" />
+      <workItem from="1742737193462" duration="19104000" />
     </task>
+    <task id="LOCAL-00001" summary="misc edit">
+      <option name="closed" value="true" />
+      <created>1741802770055</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1741802770055</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="misc edit" />
+    <MESSAGE value="refactor: enhance logging and update pull request handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: enhance logging and update pull request handling" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
   </component>
 </project>

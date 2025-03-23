@@ -16,16 +16,25 @@ impl Repo {
                 .map(|repository| Self { repository })
                 .with_context(|| format!("Failed to open repository {:?}", path));
             match repo {
-                Ok(rep) => {
-                    log::debug!("Repository opened: {:?}", path);
+                Ok(mut rep) => {
+                    log::info!("Repository opened: {:?}", path);
+                    rep.update()?;
+                    log::info!("Repository updated: {:?}", path);
                     Ok(rep)
                 }
                 Err(e) => {
                     log::warn!("Failed to open repository: {:?}", e);
-                    Self::clone_repository(repository_url, path)
+                    log::info!("Trying to clone repository from {}", repository_url);
+                    let result = Self::clone_repository(repository_url, path);
+                    log::info!("Repository cloned. Ok?:{:?}", result.is_ok());
+                    result
                 }
             }
         } else {
+            log::info!(
+                "Trying to clone repository from {repository_url} to {:?}",
+                path
+            );
             Repo::clone_repository(repository_url, path)
         }
     }
@@ -36,7 +45,9 @@ impl Repo {
 
         let mut builder = git2::build::RepoBuilder::new();
         let mut checkout_builder = git2::build::CheckoutBuilder::new();
-        builder.fetch_options(fetch_options).with_checkout(checkout_builder);
+        builder
+            .fetch_options(fetch_options)
+            .with_checkout(checkout_builder);
 
         let repo = builder
             .clone(url, path)

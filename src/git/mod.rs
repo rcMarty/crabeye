@@ -2,8 +2,9 @@ use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
 use crate::git::github::GitHubApi;
+use crate::MULTI_PROGRESS_BAR;
 use git2::Oid;
-use octocrab::params::State::All;
+use octocrab::params::State;
 use secrecy::SecretString;
 use std::path::Path;
 
@@ -25,7 +26,7 @@ impl Analyze {
     ) -> Self {
         let repo = Repo::init(
             Analyze::url(repository_name.clone(), owner.clone()).as_str(),
-            Path::new("./test_repos"),
+            Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
         .unwrap();
         let github = GitHubApi::new(owner, repository_name, token).unwrap();
@@ -37,19 +38,32 @@ impl Analyze {
     }
 
     fn url(repository_name: String, owner: String) -> String {
-        "https://github.com/".to_owned() + repository_name.as_str() + "/" + owner.as_str()
+        "https://github.com/".to_owned() + owner.as_str() + "/" + repository_name.as_str()
     }
 
     pub async fn analyze(&self) -> anyhow::Result<()> {
-        let prs = self.github.get_all_pull_requests(All).await?;
-        for pr in prs {
+        // TODO hardoced number of pages
+        let prs = self.github.get_pull_requests(State::Closed, 5).await?;
+
+        let multi = MULTI_PROGRESS_BAR.clone();
+        let bar = multi.add(indicatif::ProgressBar::new(prs.len() as u64));
+        bar.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
+                .progress_chars("##-"),
+        );
+
+        for pr in prs.iter() {
+            bar.inc(1);
+            bar.set_message(format!("Processing PR #{}", pr.pr_number));
+            log::debug!("{}", "_".repeat(69));
             log::debug!("{:#?}", pr);
-            if let Err(res) = self.database.insert_pr_event(&pr).await {
+            if let Err(res) = self.database.insert_pr_event(pr).await {
                 log::error!("Error: {:?}", res);
             }
 
-            let sha = match pr.state {
-                PullRequestStatus::Merged { merge_sha } => merge_sha,
+            let sha = match &pr.state {
+                PullRequestStatus::Merged { merge_sha, time } => merge_sha,
                 _ => {
                     log::warn!("PR #{} is not merged", pr.pr_number);
                     continue;
@@ -75,14 +89,15 @@ impl Analyze {
                     pr: pr.pr_number,
                     file_path: file,
                     user_login: "reee".to_string(),
-                    timestamp: pr.timestamp,
+                    timestamp: pr.get_timestamp(),
                 };
                 if let Err(res) = self.database.insert_file_activity(&activity).await {
                     log::error!("Error: {:?}", res);
                 }
             }
         }
-
+        bar.finish_with_message("Finished processing PRs");
+        multi.remove(&bar);
         Ok(())
     }
 }

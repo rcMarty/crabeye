@@ -4,6 +4,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::log;
 use octocrab::models::issues::Issue;
+use octocrab::models::pulls::PullRequest;
 use octocrab::models::IssueState;
 use octocrab::{params, Octocrab};
 use secrecy::SecretString;
@@ -29,7 +30,11 @@ impl GitHubApi {
         })
     }
 
-    pub async fn get_issues(&self, name: String, state: params::State) -> anyhow::Result<Vec<Issue>> {
+    pub async fn get_issues(
+        &self,
+        name: String,
+        state: params::State,
+    ) -> anyhow::Result<Vec<Issue>> {
         let page = self
             .octocrab
             .issues(self.owner.clone(), self.repository.clone())
@@ -67,12 +72,17 @@ impl GitHubApi {
         Ok(issues)
     }
 
-    pub async fn get_all_pull_requests(&self, state: params::State) -> anyhow::Result<Vec<PrEvent>> {
+    pub async fn get_pull_requests(
+        &self,
+        state: params::State,
+        no_of_pages: u32,
+    ) -> anyhow::Result<Vec<PrEvent>> {
         let pr = self
             .octocrab
             .pulls(self.owner.clone(), self.repository.clone())
             .list()
             .state(state)
+            .page(2u32)
             .per_page(100)
             .send()
             .await
@@ -87,35 +97,53 @@ impl GitHubApi {
             pr.number_of_pages()
         );
 
-        log::debug!(
-            "Requesting all {:?} pages of pull requests",
-            pr.number_of_pages()
-        );
-        let pr = self
-            .octocrab
-            .all_pages::<octocrab::models::pulls::PullRequest>(pr)
-            .await
-            .context("Failed to request all pull requests")?;
-        log::debug!("Received all pull requests ({})", pr.len());
+        if pr.number_of_pages() < Some(no_of_pages) {
+            log::warn!("Found less than {no_of_pages} pull requests");
+        }
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
-        for pr in pr {
-            let parsed = PrEvent {
-                pr_number: pr.id.0 as i64,
-                state: match (pr.state, pr.merged_at) {
-                    (Some(IssueState::Open), _) => PullRequestStatus::Open,
-                    (Some(IssueState::Closed), None) => PullRequestStatus::Closed,
-                    (Some(IssueState::Closed), Some(_)) => PullRequestStatus::Merged {
-                        merge_sha: pr.merge_commit_sha.expect("Missing merge commit SHA"),
-                    },
 
-                    (s, merged_at) => {
-                        panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
-                    }
-                },
-                timestamp: pr.created_at.unwrap(),
-            };
-            parsed_prs.push(parsed);
+        for page in 1..no_of_pages {
+            let pr = self
+                .octocrab
+                .pulls(self.owner.clone(), self.repository.clone())
+                .list()
+                .state(state)
+                .page(2u32)
+                .per_page(100)
+                .page(page)
+                .send()
+                .await
+                .context(format!(
+                    "Failed to get pull requests for {}/{}",
+                    self.owner, self.repository
+                ))?;
+
+            log::debug!("Requesting {page}/{no_of_pages} page of pull requests");
+
+            for pr in pr.items {
+                let parsed = PrEvent {
+                    pr_number: pr.number as i64,
+                    author_id: pr.user.expect("No author in PrEvent").id,
+                    state: match (pr.state, pr.merged_at) {
+                        (Some(IssueState::Open), _) => PullRequestStatus::Open {
+                            time: pr.created_at.expect("Missing created time"),
+                        },
+                        (Some(IssueState::Closed), None) => PullRequestStatus::Closed {
+                            time: pr.closed_at.expect("Missing closed time"),
+                        },
+                        (Some(IssueState::Closed), Some(_)) => PullRequestStatus::Merged {
+                            merge_sha: pr.merge_commit_sha.expect("Missing merge commit SHA"),
+                            time: pr.merged_at.expect("Missing merge time"),
+                        },
+
+                        (s, merged_at) => {
+                            panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
+                        }
+                    },
+                };
+                parsed_prs.push(parsed);
+            }
         }
 
         Ok(parsed_prs)
