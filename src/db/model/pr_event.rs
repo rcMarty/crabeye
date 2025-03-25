@@ -20,6 +20,15 @@ pub enum PullRequestStatus {
     Closed {
         time: DateTime<Utc>,
     },
+    Waiting_for_review {
+        time: DateTime<Utc>,
+    },
+    Waiting_for_merge {
+        time: DateTime<Utc>,
+    },
+    Waiting_for_author {
+        time: DateTime<Utc>,
+    },
     Merged {
         merge_sha: String,
         time: DateTime<Utc>,
@@ -30,7 +39,7 @@ pub enum PullRequestStatus {
 pub struct FileActivity {
     pub pr: i64,
     pub file_path: String,
-    pub user_login: String,
+    pub user_id: octocrab::models::UserId,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -40,6 +49,9 @@ impl PrEvent {
             PullRequestStatus::Open { time } => *time,
             PullRequestStatus::Closed { time } => *time,
             PullRequestStatus::Merged { time, .. } => *time,
+            PullRequestStatus::Waiting_for_review { time } => *time,
+            PullRequestStatus::Waiting_for_merge { time } => *time,
+            PullRequestStatus::Waiting_for_author { time } => *time,
         }
     }
 
@@ -62,6 +74,10 @@ impl Display for PrEvent {
                 PullRequestStatus::Open { time } => time,
                 PullRequestStatus::Closed { time } => time,
                 PullRequestStatus::Merged { merge_sha, time } => time,
+
+                PullRequestStatus::Waiting_for_review { time } => time,
+                PullRequestStatus::Waiting_for_merge { time } => time,
+                PullRequestStatus::Waiting_for_author { time } => time,
             }
         )
     }
@@ -106,9 +122,12 @@ impl<'q> Encode<'q, Sqlite> for PullRequestStatus {
         buf: &mut Vec<SqliteArgumentValue<'q>>,
     ) -> Result<sqlx::encode::IsNull, BoxDynError> {
         let string_repr = match self {
-            PullRequestStatus::Open { time } => "open".to_string(),
-            PullRequestStatus::Closed { time } => "closed".to_string(),
-            PullRequestStatus::Merged { merge_sha, time } => "merged".to_string(),
+            PullRequestStatus::Open { .. } => "open".to_string(),
+            PullRequestStatus::Closed { .. } => "closed".to_string(),
+            PullRequestStatus::Merged { .. } => "merged".to_string(),
+            PullRequestStatus::Waiting_for_review { .. } => "waiting_for_review".to_string(),
+            PullRequestStatus::Waiting_for_merge { .. } => "waiting_for_merge".to_string(),
+            PullRequestStatus::Waiting_for_author { .. } => "waiting_for_author".to_string(),
         };
 
         <std::string::String as sqlx::Encode<'_, Sqlite>>::encode_by_ref(&string_repr, buf)

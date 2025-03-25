@@ -42,9 +42,10 @@ impl Analyze {
     }
 
     pub async fn analyze(&self) -> anyhow::Result<()> {
-        // TODO hardoced number of pages
-        let prs = self.github.get_pull_requests(State::Closed, 5).await?;
+        // TODO hardcoded number of pages
+        let prs = self.github.get_pull_requests(State::Closed, 100).await?;
 
+        // proggress bar
         let multi = MULTI_PROGRESS_BAR.clone();
         let bar = multi.add(indicatif::ProgressBar::new(prs.len() as u64));
         bar.set_style(
@@ -53,6 +54,7 @@ impl Analyze {
                 .progress_chars("##-"),
         );
 
+        // process prs
         for pr in prs.iter() {
             bar.inc(1);
             bar.set_message(format!("Processing PR #{}", pr.pr_number));
@@ -88,7 +90,7 @@ impl Analyze {
                 let activity = FileActivity {
                     pr: pr.pr_number,
                     file_path: file,
-                    user_login: "reee".to_string(),
+                    user_id: pr.author_id,
                     timestamp: pr.get_timestamp(),
                 };
                 if let Err(res) = self.database.insert_file_activity(&activity).await {

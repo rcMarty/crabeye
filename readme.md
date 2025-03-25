@@ -13,6 +13,11 @@ Track everything about contributors, issues, and repository activity — all wri
 
 Link to database schema [here](https://dbdiagram.io/d/6791134c37f5d6cbeb969453)
 
+## TODO
+
+- [ ] upsert users and add team for each user
+  [ ]
+
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for details.

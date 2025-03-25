@@ -1,10 +1,12 @@
 pub mod model;
 
 // src/db/mod.rs
-use crate::db::model::pr_event::{FileActivity, PrEvent};
+use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
 use anyhow::Result;
+use chrono::{Datelike, NaiveDate};
 use sqlx::{Pool, Sqlite, SqlitePool};
 
+#[derive(Debug, Clone)]
 pub struct Database {
     pub pool: Pool<Sqlite>,
 }
@@ -46,29 +48,68 @@ VALUES (?, ?,?,?,?)
         &self,
         pr: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<String>> {
+    ) -> Result<Vec<String>> {
+        let timestamp_start =
+            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+
         let record = sqlx::query!(
-            r#"SELECT state FROM pr_event_log 
-               WHERE pr = ? AND timestamp <= ?
-               ORDER BY timestamp DESC
-               LIMIT 1"#,
+            r#"
+SELECT distinct state FROM pr_event_log
+WHERE pr = ? and timestamp between ? and ?
+ORDER BY timestamp DESC
+               "#,
             pr,
-            timestamp
+            timestamp_start,
+            timestamp_end
         )
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        Ok(record.map(|r| r.state))
+        let ret = record.iter().map(|r| r.state.clone()).collect::<Vec<_>>();
+        log::debug!("return value from get pr state at: \n{:?}", ret);
+
+        Ok(ret)
+    }
+
+    /**
+    Get the count of the state of the pull request at the given timestamp
+
+    @param pr: i64 - the pull request number
+    */
+    pub async fn get_pr_count_in_state(
+        &self,
+        timestamp: chrono::DateTime<chrono::Utc>,
+        state: PullRequestStatus,
+    ) -> Result<i64> {
+        let timestamp_start =
+            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+
+        let record = sqlx::query!(
+            r#"
+SELECT count(*) as count FROM pr_event_log
+WHERE timestamp BETWEEN ? AND ? AND state = ?;
+               "#,
+            timestamp_start,
+            timestamp_end,
+            state
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(record.count)
     }
 
     pub async fn insert_file_activity(&self, activity: &FileActivity) -> Result<()> {
+        let user_id = activity.user_id.0 as i64;
         sqlx::query!(
             r#"INSERT INTO file_activity
                (pr, file_path, user_login, timestamp)
                VALUES (?, ?, ?, ?)"#,
             activity.pr,
             activity.file_path,
-            activity.user_login,
+            user_id,
             activity.timestamp
         )
         .execute(&self.pool)

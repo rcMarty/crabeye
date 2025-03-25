@@ -1,13 +1,17 @@
 #![allow(unused)]
+
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
+use crate::MULTI_PROGRESS_BAR;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::log;
 use octocrab::models::issues::Issue;
 use octocrab::models::pulls::PullRequest;
 use octocrab::models::IssueState;
+use octocrab::params::pulls::Sort;
 use octocrab::{params, Octocrab};
 use secrecy::SecretString;
+use std::fmt::format;
 
 pub struct GitHubApi {
     owner: String,
@@ -82,7 +86,6 @@ impl GitHubApi {
             .pulls(self.owner.clone(), self.repository.clone())
             .list()
             .state(state)
-            .page(2u32)
             .per_page(100)
             .send()
             .await
@@ -103,13 +106,25 @@ impl GitHubApi {
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
 
+        // proggress bar
+        let multi = MULTI_PROGRESS_BAR.clone();
+        let bar = multi.add(indicatif::ProgressBar::new(no_of_pages as u64));
+        bar.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
+                .progress_chars("##-"),
+        );
+
+        // requesting pages
         for page in 1..no_of_pages {
+            bar.inc(1);
+            bar.set_message(format!("Processing page {}/{}", page, no_of_pages));
             let pr = self
                 .octocrab
                 .pulls(self.owner.clone(), self.repository.clone())
                 .list()
-                .state(state)
-                .page(2u32)
+                .sort(Sort::Updated)
+                // .state(state)
                 .per_page(100)
                 .page(page)
                 .send()
@@ -122,6 +137,9 @@ impl GitHubApi {
             log::debug!("Requesting {page}/{no_of_pages} page of pull requests");
 
             for pr in pr.items {
+                log::info!("issue state: {:?}", pr.state);
+                log::info!("labels: {:#?}", pr.labels);
+
                 let parsed = PrEvent {
                     pr_number: pr.number as i64,
                     author_id: pr.user.expect("No author in PrEvent").id,
@@ -145,6 +163,8 @@ impl GitHubApi {
                 parsed_prs.push(parsed);
             }
         }
+        bar.finish();
+        multi.remove(&bar);
 
         Ok(parsed_prs)
     }
