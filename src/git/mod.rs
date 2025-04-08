@@ -43,7 +43,7 @@ impl Analyze {
 
     pub async fn analyze(&self) -> anyhow::Result<()> {
         // TODO hardcoded number of pages
-        let prs = self.github.get_pull_requests(State::Closed, 100).await?;
+        let prs = self.github.get_pull_requests(State::All, 101).await?;
 
         // proggress bar
         let multi = MULTI_PROGRESS_BAR.clone();
@@ -61,7 +61,7 @@ impl Analyze {
             log::debug!("{}", "_".repeat(69));
             log::debug!("{:#?}", pr);
             if let Err(res) = self.database.insert_pr_event(pr).await {
-                log::error!("Error: {:?}", res);
+                log::error!("Error when inserting pr event to database: {:?}", res);
             }
 
             let sha = match &pr.state {
@@ -72,7 +72,10 @@ impl Analyze {
                 }
             };
 
-            let files = self.repo.modified_files(Oid::from_str(sha.as_str())?);
+            let files = self.repo.modified_files(
+                // Oid::from_str(sha.as_str()).unwrap_or_else(|_| panic!("Invalid sha: {}", sha)),
+                Oid::from_str(sha.as_str()).unwrap_or(Oid::zero()),
+            );
 
             if files.is_err() {
                 log::error!("Error while getting modified files: {:#?}", files);

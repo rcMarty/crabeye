@@ -49,7 +49,7 @@ impl GitHubApi {
             .send()
             .await?;
 
-        println!(
+        log::info!(
             "Found {} issues, no of pages: {:?}, total count: {:?}",
             page.items.len(),
             page.number_of_pages(),
@@ -57,14 +57,14 @@ impl GitHubApi {
         );
 
         let result = self.octocrab.get_page::<Issue>(&page.next).await?;
-        println!(
+        log::info!(
             "result: {:?}",
             result.clone().unwrap().items.first().unwrap().url
         );
         let issues = result.unwrap().items;
 
         for issue in issues.iter() {
-            println!(
+            log::info!(
                 "#{}: {} {}\nauthor(s): {:?}\nlabels: {:?}\n",
                 issue.number,
                 issue.title,
@@ -95,20 +95,27 @@ impl GitHubApi {
             ))?;
 
         log::info!(
-            "Found less than {} pull requests, no of pages: {:?}",
+            "Found less than {} pull requests, no of pages: {}",
             pr.items.len() * pr.number_of_pages().unwrap_or(0) as usize,
-            pr.number_of_pages()
+            pr.number_of_pages().unwrap_or(0)
         );
 
-        if pr.number_of_pages() < Some(no_of_pages) {
-            log::warn!("Found less than {no_of_pages} pull requests");
-        }
+        let real_no_of_pages = if pr.number_of_pages() < Some(no_of_pages) {
+            log::warn!("Found less than requested ({no_of_pages}) pull requests");
+            log::warn!(
+                "Number of pages will be limited to {}",
+                pr.number_of_pages().unwrap_or(0)
+            );
+            pr.number_of_pages().unwrap_or(0)
+        } else {
+            no_of_pages
+        };
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
 
         // proggress bar
         let multi = MULTI_PROGRESS_BAR.clone();
-        let bar = multi.add(indicatif::ProgressBar::new(no_of_pages as u64));
+        let bar = multi.add(indicatif::ProgressBar::new(real_no_of_pages as u64));
         bar.set_style(
             indicatif::ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
@@ -116,17 +123,18 @@ impl GitHubApi {
         );
 
         // requesting pages
-        for page in 1..no_of_pages {
+        for page in 1..real_no_of_pages {
             bar.inc(1);
-            bar.set_message(format!("Processing page {}/{}", page, no_of_pages));
+            bar.set_message(format!("Processing page {}/{}", page, real_no_of_pages));
             let pr = self
                 .octocrab
                 .pulls(self.owner.clone(), self.repository.clone())
                 .list()
                 .sort(Sort::Updated)
-                // .state(state)
+                .state(state)
                 .per_page(100)
                 .page(page)
+                .direction(params::Direction::Descending)
                 .send()
                 .await
                 .context(format!(
@@ -135,27 +143,54 @@ impl GitHubApi {
                 ))?;
 
             log::debug!("Requesting {page}/{no_of_pages} page of pull requests");
+            log::debug!("Found {} pull requests", pr.items.len());
+
+            // check if there are no more PRs
+            if pr.items.is_empty() {
+                break;
+            }
 
             for pr in pr.items {
-                log::info!("issue state: {:?}", pr.state);
-                log::info!("labels: {:#?}", pr.labels);
+                // log::info!("issue state: {:?}", pr.state);
+                // log::info!("labels: {:#?}", pr.labels);
+                //TODO add labels for pr events
+                let debug_pr = pr.clone();
 
                 let parsed = PrEvent {
                     pr_number: pr.number as i64,
                     author_id: pr.user.expect("No author in PrEvent").id,
-                    state: match (pr.state, pr.merged_at) {
-                        (Some(IssueState::Open), _) => PullRequestStatus::Open {
+                    state: match (pr.state, pr.merged_at, pr.labels) {
+                        (Some(IssueState::Open), _, Some(labels)) => {
+                            PullRequestStatus::find_status(
+                                labels
+                                    .into_iter()
+                                    .map(|label| label.name.to_string())
+                                    .collect::<Vec<String>>(),
+                                pr.created_at.expect("Missing created time"),
+                                None,
+                            )
+                            .unwrap_or(PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            })
+                        }
+                        (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
                         },
-                        (Some(IssueState::Closed), None) => PullRequestStatus::Closed {
+                        (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
                             time: pr.closed_at.expect("Missing closed time"),
                         },
-                        (Some(IssueState::Closed), Some(_)) => PullRequestStatus::Merged {
-                            merge_sha: pr.merge_commit_sha.expect("Missing merge commit SHA"),
+                        (Some(IssueState::Closed), Some(_), _) => PullRequestStatus::Merged {
+                            merge_sha: pr
+                                .merge_commit_sha
+                                .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
+                                .unwrap_or_else(|| {
+                                    //panic!("Missing merge commit SHA {:#?} ", debug_pr)
+                                    Some("NONE".to_string())
+                                })
+                                .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
                             time: pr.merged_at.expect("Missing merge time"),
                         },
-
-                        (s, merged_at) => {
+                        (s, merged_at, labels) => {
                             panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
                         }
                     },

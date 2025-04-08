@@ -40,6 +40,8 @@ async fn main() -> anyhow::Result<()> {
     );
     analyze.analyze().await?;
 
+    log::info!("Analyze is completed");
+
     // test for get_pr_state_at function
     let timestamp =
         chrono::DateTime::parse_from_rfc3339("2025-03-21T00:00:00Z")?.with_timezone(&chrono::Utc);
@@ -56,6 +58,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
     log::info!("Result2: {:?}", ret2);
+
+    // wait for user input
+    log::info!("Press enter to exit...");
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+    log::info!("Exiting...");
 
     Ok(())
 }

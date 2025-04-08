@@ -14,19 +14,19 @@ pub struct PrEvent {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum PullRequestStatus {
+    WaitingForReview {
+        time: DateTime<Utc>,
+    },
+    WaitingForBors {
+        time: DateTime<Utc>,
+    },
+    WaitingForAuthor {
+        time: DateTime<Utc>,
+    },
     Open {
         time: DateTime<Utc>,
     },
     Closed {
-        time: DateTime<Utc>,
-    },
-    Waiting_for_review {
-        time: DateTime<Utc>,
-    },
-    Waiting_for_merge {
-        time: DateTime<Utc>,
-    },
-    Waiting_for_author {
         time: DateTime<Utc>,
     },
     Merged {
@@ -49,9 +49,9 @@ impl PrEvent {
             PullRequestStatus::Open { time } => *time,
             PullRequestStatus::Closed { time } => *time,
             PullRequestStatus::Merged { time, .. } => *time,
-            PullRequestStatus::Waiting_for_review { time } => *time,
-            PullRequestStatus::Waiting_for_merge { time } => *time,
-            PullRequestStatus::Waiting_for_author { time } => *time,
+            PullRequestStatus::WaitingForReview { time } => *time,
+            PullRequestStatus::WaitingForBors { time } => *time,
+            PullRequestStatus::WaitingForAuthor { time } => *time,
         }
     }
 
@@ -75,9 +75,9 @@ impl Display for PrEvent {
                 PullRequestStatus::Closed { time } => time,
                 PullRequestStatus::Merged { merge_sha, time } => time,
 
-                PullRequestStatus::Waiting_for_review { time } => time,
-                PullRequestStatus::Waiting_for_merge { time } => time,
-                PullRequestStatus::Waiting_for_author { time } => time,
+                PullRequestStatus::WaitingForReview { time } => time,
+                PullRequestStatus::WaitingForBors { time } => time,
+                PullRequestStatus::WaitingForAuthor { time } => time,
             }
         )
     }
@@ -99,6 +99,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for PrEvent {
                 merge_sha: merge_sha.unwrap_or_default(),
                 time: timestamp,
             },
+            "S-waiting-on-review" => PullRequestStatus::WaitingForReview { time: timestamp },
+            "S-waiting-on-bors" => PullRequestStatus::WaitingForBors { time: timestamp },
+            "S-waiting-on-author" => PullRequestStatus::WaitingForAuthor { time: timestamp },
             _ => return Err(sqlx::Error::Decode("Invalid state".into())),
         };
 
@@ -107,6 +110,41 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for PrEvent {
             author_id: octocrab::models::UserId(author_id as u64),
             state: status,
         })
+    }
+}
+
+impl PullRequestStatus {
+    pub fn from_str(
+        value: &String,
+        time: DateTime<Utc>,
+        merge_sha: Option<String>,
+    ) -> Option<Self> {
+        match value.as_str() {
+            "open" => Some(PullRequestStatus::Open { time }),
+            "closed" => Some(PullRequestStatus::Closed { time }),
+            "merged" => {
+                if let Some(merge_sha) = merge_sha {
+                    Some(PullRequestStatus::Merged { merge_sha, time })
+                } else {
+                    panic!("Merge SHA is required for merged state");
+                }
+            }
+            "S-waiting-on-review" => Some(PullRequestStatus::WaitingForReview { time }),
+            "S-waiting-on-bors" => Some(PullRequestStatus::WaitingForBors { time }),
+            "S-waiting-on-author" => Some(PullRequestStatus::WaitingForAuthor { time }),
+            _ => None,
+        }
+    }
+
+    /// Find the first matching status in the vector
+    pub fn find_status(
+        vector: Vec<String>,
+        time: DateTime<Utc>,
+        merge_sha: Option<String>,
+    ) -> Option<PullRequestStatus> {
+        vector
+            .iter()
+            .find_map(|label| PullRequestStatus::from_str(label, time, merge_sha.clone()))
     }
 }
 
@@ -125,9 +163,9 @@ impl<'q> Encode<'q, Sqlite> for PullRequestStatus {
             PullRequestStatus::Open { .. } => "open".to_string(),
             PullRequestStatus::Closed { .. } => "closed".to_string(),
             PullRequestStatus::Merged { .. } => "merged".to_string(),
-            PullRequestStatus::Waiting_for_review { .. } => "waiting_for_review".to_string(),
-            PullRequestStatus::Waiting_for_merge { .. } => "waiting_for_merge".to_string(),
-            PullRequestStatus::Waiting_for_author { .. } => "waiting_for_author".to_string(),
+            PullRequestStatus::WaitingForReview { .. } => "S-waiting-on-review".to_string(),
+            PullRequestStatus::WaitingForBors { .. } => "S-waiting-on-bors".to_string(),
+            PullRequestStatus::WaitingForAuthor { .. } => "S-waiting-on-author".to_string(),
         };
 
         <std::string::String as sqlx::Encode<'_, Sqlite>>::encode_by_ref(&string_repr, buf)
