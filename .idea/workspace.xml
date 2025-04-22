@@ -4,14 +4,20 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="CargoProjects">
-    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml">
+      <package file="$PROJECT_DIR$">
+        <enabledFeature name="default" />
+      </package>
+    </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="sql usecase requests done">
-      <change afterPath="$PROJECT_DIR$/misc/notes.md" afterDir="false" />
+    <list default="true" id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="basic users done">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/migrations/20250323151108_init.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151108_init.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/db/model/pr_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/model/pr_event.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20250323151110_add_indexes.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151110_add_indexes.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/misc/selects.sql" beforeDir="false" afterPath="$PROJECT_DIR$/misc/selects.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/git/github.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/github.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/git/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
@@ -140,6 +146,8 @@
       <workItem from="1743950969018" duration="14423000" />
       <workItem from="1743969168738" duration="5258000" />
       <workItem from="1744033000453" duration="1555000" />
+      <workItem from="1744143910920" duration="1495000" />
+      <workItem from="1745327177572" duration="10101000" />
     </task>
     <task id="LOCAL-00001" summary="misc edit">
       <option name="closed" value="true" />
@@ -165,7 +173,15 @@
       <option name="project" value="LOCAL" />
       <updated>1742929830435</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="probably parsing and pushing done">
+      <option name="closed" value="true" />
+      <created>1744143967231</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1744143967231</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -175,7 +191,9 @@
     <MESSAGE value="misc edit" />
     <MESSAGE value="refactor: enhance logging and update pull request handling" />
     <MESSAGE value="sql usecase requests done" />
-    <option name="LAST_COMMIT_MESSAGE" value="sql usecase requests done" />
+    <MESSAGE value="probably parsing and pushing done" />
+    <MESSAGE value="basic users done" />
+    <option name="LAST_COMMIT_MESSAGE" value="basic users done" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

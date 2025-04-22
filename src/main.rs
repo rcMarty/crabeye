@@ -50,12 +50,7 @@ async fn main() -> anyhow::Result<()> {
 
     // test for get count of prs in concrete state and concrete day
     let ret2 = db
-        .get_pr_count_in_state(
-            timestamp,
-            PullRequestStatus::Open {
-                time: Default::default(),
-            },
-        )
+        .get_pr_count_in_state(timestamp, PullRequestStatus::Closed { time: timestamp })
         .await?;
     log::info!("Result2: {:?}", ret2);
 

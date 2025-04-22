@@ -10,6 +10,7 @@ use octocrab::models::pulls::PullRequest;
 use octocrab::models::IssueState;
 use octocrab::params::pulls::Sort;
 use octocrab::{params, Octocrab};
+use rust_team_data::v1::PermissionPerson;
 use secrecy::SecretString;
 use std::fmt::format;
 
@@ -32,6 +33,22 @@ impl GitHubApi {
             repository,
             octocrab,
         })
+    }
+
+    pub async fn get_authorized_users(&self) -> Result<Vec<PermissionPerson>, String> {
+        let url = format!("{}/permissions/perf.json", ::rust_team_data::v1::BASE_URL);
+        let client = reqwest::Client::new();
+        client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .error_for_status()
+            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .json::<rust_team_data::v1::Permission>()
+            .await
+            .map_err(|err| format!("failed to fetch authorized users: {}", err))
+            .map(|perms| perms.people)
     }
 
     pub async fn get_issues(

@@ -4,6 +4,7 @@ pub mod model;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
 use anyhow::Result;
 use chrono::{Datelike, NaiveDate};
+use rust_team_data::v1::PermissionPerson;
 use sqlx::{Pool, Sqlite, SqlitePool};
 
 #[derive(Debug, Clone)]
@@ -22,26 +23,6 @@ impl Database {
         sqlx::migrate!().run(&pool).await?;
 
         Ok(Self { pool })
-    }
-
-    pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
-        let timestamp = event.get_timestamp();
-        let merge_sha = event.get_merge_sha();
-        let author_id = event.author_id.0 as i64;
-        sqlx::query!(
-            r#"
-INSERT INTO pr_event_log (pr, state,timestamp, merge_sha, author_id) 
-VALUES (?, ?,?,?,?)
-"#,
-            event.pr_number,
-            event.state,
-            timestamp,
-            merge_sha,
-            author_id
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(())
     }
 
     pub async fn get_pr_state_at(
@@ -99,6 +80,52 @@ WHERE timestamp BETWEEN ? AND ? AND state = ?;
         .await?;
 
         Ok(record.count)
+    }
+
+    /// Cleans the old users from table and insert new users
+    pub async fn insert_team_members(&self, team_members: &[PermissionPerson]) -> Result<()> {
+        sqlx::query!(
+            r#"-- noinspection SqlWithoutWhereForFile
+DELETE FROM team_members
+"#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        for user in team_members.iter() {
+            let gh_id = user.github_id as i64;
+            sqlx::query!(
+                r#"
+INSERT INTO team_members (github_id, github_name, name)
+VALUES (?,?,?)"#,
+                gh_id,
+                user.github,
+                user.name
+            )
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
+        let timestamp = event.get_timestamp();
+        let merge_sha = event.get_merge_sha();
+        let author_id = event.author_id.0 as i64;
+        sqlx::query!(
+            r#"
+INSERT INTO pr_event_log (pr, state,timestamp, merge_sha, author_id) 
+VALUES (?,?,?,?,?)
+"#,
+            event.pr_number,
+            event.state,
+            timestamp,
+            merge_sha,
+            author_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn insert_file_activity(&self, activity: &FileActivity) -> Result<()> {

@@ -49,3 +49,11 @@ select pr, timestamp
 from pr_event_log
 where state = 'open'
 order by timestamp;
+
+
+-- 6) u těch změněných souborů by to mělo fungovat hierarchicky
+-- např. když PR 1 změní a/b/c a PR 2 změní a/b/d, tak když se zeptám co změnilo naposledy složku a/b, tak by to mělo vrátit 1 i 2
+-- tohle git umí automaticky, přes SQL by se to asi dělalo naivně skenem přes všechny PR v daném časovém horizontu
+select *
+from file_activity
+where file_path like 'src/libsyntax/parse/%'

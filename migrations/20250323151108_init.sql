@@ -21,13 +21,21 @@ CREATE TABLE IF NOT EXISTS file_activity
     pr            INTEGER  NOT NULL,
     file_path     TEXT     NOT NULL,
     user_login    TEXT     NOT NULL,
-    activity_type TEXT CHECK (activity_type IN ('edit', 'review')),
+    activity_type TEXT,
     timestamp     DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS team_members
 (
-    team_slug  TEXT NOT NULL,
-    user_login TEXT NOT NULL,
-    PRIMARY KEY (team_slug, user_login)
+    github_id   TEXT NOT NULL,
+    github_name TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    team        TEXT,
+    subteam     TEXT,
+    kind        TEXT CHECK ( kind IN ('team',
+                                      'working-group',
+                                      'project-group',
+                                      'marker-team') ), -- team, working-grouup, project-group, marker-team
+    
+    PRIMARY KEY (github_id)
 );

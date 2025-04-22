@@ -42,6 +42,21 @@ impl Analyze {
     }
 
     pub async fn analyze(&self) -> anyhow::Result<()> {
+        //users section
+        log::info!("Getting users from github");
+        let users = self
+            .github
+            .get_authorized_users()
+            .await
+            .expect("Failed to get users");
+
+        log::info!("number of found users: {}", users.len());
+
+        if let Err(res) = self.database.insert_team_members(&users).await {
+            log::error!("Error: {:?}", res);
+        }
+
+        // pr section
         // TODO hardcoded number of pages
         let prs = self.github.get_pull_requests(State::All, 101).await?;
 
@@ -65,7 +80,7 @@ impl Analyze {
             }
 
             let sha = match &pr.state {
-                PullRequestStatus::Merged { merge_sha, time } => merge_sha,
+                PullRequestStatus::Merged { merge_sha, time: _ } => merge_sha,
                 _ => {
                     log::warn!("PR #{} is not merged", pr.pr_number);
                     continue;
