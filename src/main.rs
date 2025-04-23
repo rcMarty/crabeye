@@ -1,4 +1,5 @@
 mod api;
+mod app;
 mod config;
 mod db;
 mod git;
@@ -12,12 +13,14 @@ use dotenvy::dotenv;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
+use std::env;
 
 lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
+    let args = env::args().collect::<Vec<String>>();
     let config = Config::from_env()?;
     let logger = env_logger::builder()
         .format_timestamp_millis()
@@ -38,9 +41,11 @@ async fn main() -> anyhow::Result<()> {
         config.github_token,
         db.clone(),
     );
-    analyze.analyze().await?;
-
-    log::info!("Analyze is completed");
+    log::debug!("passing arguments: {:#?}", args);
+    if args.contains(&String::from("analyze")) {
+        analyze.analyze().await?;
+        log::info!("Analyze is completed");
+    }
 
     // test for get_pr_state_at function
     let timestamp =

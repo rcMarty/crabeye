@@ -17,14 +17,17 @@ WHERE timestamp BETWEEN '2025-03-21' AND '2025-03-22'
   AND state = 'open';
 
 -- 3) Pro daného uživatele/tým (z https://github.com/rust-lang/team), jakých je top N souborů, které byly buď upraveny nebo reviewovány za posledních N časových jednotek?
--- netuším jk získat zda byl soubor upraven nebo reviewován. odkud to zjistím?
-select pr, file_path
+-- TODO netuším jk získat zda byl soubor upraven nebo reviewován. odkud to zjistím?
+select pr, file_path, timestamp
 from file_activity
 where user_login = 476013
   and timestamp between '2025-03-21' and '2025-03-22'
-  and pr = 138791;
+  and pr = 138791
+order by timestamp desc
+limit 10;
 
 
+-- pro daného uživatele v časovém období kolik souborů změnil v kterých PR
 select pr, count(file_path) as count
 from file_activity
 where user_login = 476013
@@ -33,12 +36,13 @@ group by pr;
 
 
 -- 4) Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N časových jednotkách upravovali nebo reviewovali?
-select distinct user_login as count
+-- TODO jak poznám že reviewovali
+select distinct user_login, pr
 from file_activity
-where file_path = 'compiler/rustc_hir_pretty/src/lib.rs'
-  and timestamp between '2025-03-21' and '2025-03-22';
+where file_path like 'compiler/rustc_hir_pretty/src/lib.rs%'
+  and timestamp between '2022-03-21' and '2026-03-22';
 
-
+-- kolikrát se upravil jaký soubor
 select distinct file_path, count(file_path) as count
 from file_activity
 group by file_path
@@ -47,7 +51,9 @@ order by count desc;
 -- 5) dotaz: PR, které čekají nejdelší dobu na review (jednodušší verze: jsou nejdelší čas ve stavu "waiting-on-review",
 select pr, timestamp
 from pr_event_log
-where state = 'open'
+where state = 'S-waiting-on-review'
+   or state = 'S-waiting-on-bors'
+   or state = 'S-waiting-on-author'
 order by timestamp;
 
 
