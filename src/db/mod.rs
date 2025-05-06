@@ -13,6 +13,7 @@ pub struct Database {
     pub pool: Pool<Sqlite>,
 }
 
+// part where is inserting into database
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self> {
         // i guess this is useless since sqlx is checking database in compiletime already
@@ -74,9 +75,10 @@ VALUES (?,?,?,?,?)
     pub async fn insert_file_activity(&self, activity: &FileActivity) -> Result<()> {
         let user_id = activity.user_id.0 as i64;
         sqlx::query!(
-            r#"INSERT INTO file_activity
-               (pr, file_path, user_login, timestamp)
-               VALUES (?, ?, ?, ?)"#,
+            r#"
+INSERT INTO file_activity(pr, file_path, user_login, timestamp)
+VALUES (?, ?, ?, ?)
+               "#,
             activity.pr,
             activity.file_path,
             user_id,
@@ -196,7 +198,6 @@ limit ?;
         &self,
         file_path: String,
         timestamp: chrono::DateTime<chrono::Utc>,
-        n: i64,
     ) -> Result<Vec<String>> {
         let timestamp_start =
             NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
@@ -228,7 +229,6 @@ where file_path like ?
     pub async fn get_prs_waiting_for_review(
         &self,
         timestamp: chrono::DateTime<chrono::Utc>,
-        n: i64,
     ) -> Result<Vec<(i64, chrono::DateTime<chrono::Utc>)>> {
         let timestamp_start =
             NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();

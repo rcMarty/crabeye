@@ -1,14 +1,17 @@
 mod api;
-mod app;
+mod commands;
 mod config;
 mod db;
 mod git;
 mod monitoring;
 
+use crate::commands::{Cli, Commands, RequestSubcommands};
 use crate::config::Config;
 use crate::db::model::pr_event::PullRequestStatus;
 use crate::db::Database;
 use crate::git::Analyze;
+use chrono::DateTime;
+use clap::Parser;
 use dotenvy::dotenv;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
@@ -19,8 +22,7 @@ lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiP
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenv().ok();
-    let args = env::args().collect::<Vec<String>>();
+    // dotenv().ok();
     let config = Config::from_env()?;
     let logger = env_logger::builder()
         .format_timestamp_millis()
@@ -34,30 +36,54 @@ async fn main() -> anyhow::Result<()> {
 
     let db = Database::new(config.db_url.as_str()).await?;
 
-    // get all prs and matching files from repo and insert them into db
-    let analyze = Analyze::init(
-        config.repo_name,
-        config.repo_owner,
-        config.github_token,
-        db.clone(),
-    );
-    log::debug!("passing arguments: {:#?}", args);
-    if args.contains(&String::from("analyze")) {
-        analyze.analyze().await?;
-        log::info!("Analyze is completed");
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Analyze => {
+            let analyze = Analyze::init(
+                config.repo_name,
+                config.repo_owner,
+                config.github_token,
+                db.clone(),
+            );
+            analyze.analyze().await?;
+            log::info!("Analyze is completed");
+        }
+        Commands::Request { subcommand } => match subcommand {
+            RequestSubcommands::PrStateAt { pr_number, date } => {
+                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+                let result = db.get_pr_state_at(pr_number, timestamp).await?;
+                log::info!("PR State At: {:?}", result);
+            }
+            RequestSubcommands::PrCountInState { state, date } => {
+                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+                let pr_state = PullRequestStatus::from_str(&state, timestamp, None)
+                    .ok_or_else(|| anyhow::anyhow!("Invalid state"))?;
+                let count = db.get_pr_count_in_state(timestamp, pr_state).await?;
+                log::info!("PR Count In State: {}", count);
+            }
+            RequestSubcommands::TopNFiles {
+                user_id,
+                pr_id,
+                date,
+                n,
+            } => {
+                log::debug!("date: {:?}", date);
+                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+                let files = db.get_top_n_files(user_id, pr_id, timestamp, n).await?;
+                log::info!("Top N Files: {:?}", files);
+            }
+            RequestSubcommands::UsersWhoModifiedFile { file_path, date } => {
+                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+                let users = db.get_users_who_modified_file(file_path, timestamp).await?;
+                log::info!("Users Who Modified File: {:?}", users);
+            }
+            RequestSubcommands::PrsWaitingForReview { date } => {
+                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
+                let prs = db.get_prs_waiting_for_review(timestamp).await?;
+                log::info!("PRs Waiting For Review: {:?}", prs);
+            }
+        },
     }
-
-    // test for get_pr_state_at function
-    let timestamp =
-        chrono::DateTime::parse_from_rfc3339("2025-03-21T00:00:00Z")?.with_timezone(&chrono::Utc);
-    let ret = db.get_pr_state_at(138694, timestamp).await?;
-    log::info!("Result: {:?}", ret);
-
-    // test for get count of prs in concrete state and concrete day
-    let ret2 = db
-        .get_pr_count_in_state(timestamp, PullRequestStatus::Closed { time: timestamp })
-        .await?;
-    log::info!("Result2: {:?}", ret2);
 
     // wait for user input
     log::info!("Press enter to exit...");

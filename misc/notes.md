@@ -21,6 +21,9 @@ release
 
 850MB ramky
 
+PŘECHOD NA POSTGRES kvůli jednoduchosti nasaditelnosti a kvůli migracím že jsou složité
+
+
 
 
 
