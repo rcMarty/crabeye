@@ -1,41 +1,60 @@
--- Add migration script here
+-- TODO enum or text with check constraint
+-- CREATE TYPE pr_state AS ENUM (
+--     'open',
+--     'closed',
+--     'merged',
+--     'S-waiting-on-review',
+--     'S-waiting-on-bors',
+--     'S-waiting-on-author'
+--     );
 
-CREATE TABLE IF NOT EXISTS pr_event_log
-(
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    pr        INTEGER                                         NOT NULL,
-    state     TEXT check ( state IN ('open',
-                                     'closed',
-                                     'merged',
-                                     'S-waiting-on-review',
-                                     'S-waiting-on-bors',
-                                     'S-waiting-on-author') ) NOT NULL, -- "open", "closed", "merged", "S-waiting-on-review", "S-waiting-on-bors", "S-waiting-on-author"
-    timestamp DATETIME                                        NOT NULL, -- Event time (opened/closed/merged)
-    merge_sha TEXT,                                                     -- Only for "merged"
-    author_id INTEGER                                         NOT NULL  -- GitHub user ID
-);
+-- TODO enum or text with check constraint
+-- CREATE TYPE team_kind AS ENUM (
+--     'team',
+--     'working-group',
+--     'project-group',
+--     'marker-team'
+--     );
 
-CREATE TABLE IF NOT EXISTS file_activity
+CREATE TABLE team_members
 (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    pr            INTEGER  NOT NULL,
-    file_path     TEXT     NOT NULL,
-    user_login    TEXT     NOT NULL,
-    activity_type TEXT,
-    timestamp     DATETIME NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS team_members
-(
-    github_id   TEXT NOT NULL,
-    github_name TEXT NOT NULL,
-    name        TEXT NOT NULL,
+    id          SERIAL PRIMARY KEY,
+    github_id   BIGINT NOT NULL,
+    github_name TEXT,
+    name        TEXT,
     team        TEXT,
-    subteam     TEXT,
-    kind        TEXT CHECK ( kind IN ('team',
-                                      'working-group',
-                                      'project-group',
-                                      'marker-team') ), -- team, working-grouup, project-group, marker-team
-    
-    PRIMARY KEY (github_id)
+    subteam_of  TEXT,
+    kind        TEXT
+);
+
+CREATE TABLE pull_requests
+(
+    pr            BIGINT PRIMARY KEY,
+    author_id     BIGINT NOT NULL,
+    current_state TEXT   NOT NULL,
+    merge_sha     TEXT,
+    timestamp     TIMESTAMP
+);
+
+CREATE TABLE pr_state_history
+(
+    id        SERIAL PRIMARY KEY,
+    pr        BIGINT    NOT NULL REFERENCES pull_requests (pr),
+    state     TEXT      NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    merge_sha TEXT
+--     CHECK (
+--         (state = 'merged' AND merge_sha IS NOT NULL) OR
+--         (state <> 'merged' AND merge_sha IS NULL)
+--         )
+);
+
+CREATE TABLE file_activity
+(
+    id            SERIAL PRIMARY KEY,
+    pr            BIGINT    NOT NULL, --REFERENCES pull_requests (pr),
+    file_path     TEXT      NOT NULL,
+    user_login    BIGINT      NOT NULL,
+    activity_type TEXT,
+    timestamp     TIMESTAMP NOT NULL
 );

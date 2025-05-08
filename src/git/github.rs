@@ -10,9 +10,10 @@ use octocrab::models::pulls::PullRequest;
 use octocrab::models::IssueState;
 use octocrab::params::pulls::Sort;
 use octocrab::{params, Octocrab};
-use rust_team_data::v1::PermissionPerson;
+use rust_team_data::v1::{PermissionPerson, Team};
 use secrecy::SecretString;
 use std::fmt::format;
+use crate::db::model::team_member::TeamMember;
 
 pub struct GitHubApi {
     owner: String,
@@ -35,20 +36,39 @@ impl GitHubApi {
         })
     }
 
-    pub async fn get_authorized_users(&self) -> Result<Vec<PermissionPerson>, String> {
-        let url = format!("{}/permissions/perf.json", ::rust_team_data::v1::BASE_URL);
+    pub async fn get_authorized_users(&self) -> Result<Vec<TeamMember>, String> {
+        let url = format!("{}/teams.json", ::rust_team_data::v1::BASE_URL);
         let client = reqwest::Client::new();
-        client
+        let teams = client
             .get(&url)
             .send()
             .await
             .map_err(|err| format!("failed to fetch authorized users: {}", err))?
             .error_for_status()
             .map_err(|err| format!("failed to fetch authorized users: {}", err))?
-            .json::<rust_team_data::v1::Permission>()
+            .json::<rust_team_data::v1::Teams>()
             .await
             .map_err(|err| format!("failed to fetch authorized users: {}", err))
-            .map(|perms| perms.people)
+            .map(|teams| teams.teams)
+            .map(|indextype| indextype.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
+            .map_err(|err| format!("failed to fetch authorized users: {}", err))?;
+
+        let authorized_users = teams.iter()
+            .filter(|team| { team.name != "all" })
+            .flat_map(|team| {
+                team.members.iter()
+                    .map(|member| TeamMember {
+                        github_id: member.github_id,
+                        github_name: member.github.clone(),
+                        name: member.name.clone(),
+                        team: team.name.clone(),
+                        subteam_of: team.subteam_of.clone(),
+                        kind: team.kind,
+                    })
+                    .collect::<Vec<TeamMember>>()
+            })
+            .collect::<Vec<TeamMember>>();
+        Ok(authorized_users)
     }
 
     pub async fn get_issues(
@@ -186,9 +206,9 @@ impl GitHubApi {
                                 pr.created_at.expect("Missing created time"),
                                 None,
                             )
-                            .unwrap_or(PullRequestStatus::Open {
-                                time: pr.created_at.expect("Missing created time"),
-                            })
+                                .unwrap_or(PullRequestStatus::Open {
+                                    time: pr.created_at.expect("Missing created time"),
+                                })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
@@ -7,6 +8,7 @@ use git2::Oid;
 use octocrab::params::State;
 use secrecy::SecretString;
 use std::path::Path;
+use chrono::{DateTime, Utc};
 
 pub mod git;
 pub mod github;
@@ -28,7 +30,7 @@ impl Analyze {
             Analyze::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
-        .unwrap();
+            .unwrap();
         let github = GitHubApi::new(owner, repository_name, token).unwrap();
         Self {
             repo,
@@ -41,7 +43,23 @@ impl Analyze {
         "https://github.com/".to_owned() + owner.as_str() + "/" + repository_name.as_str()
     }
 
+    fn log_duration(
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        message: &str,
+    ) {
+        let duration_secs = end.signed_duration_since(start).num_seconds();
+        let format = match duration_secs {
+            0..60 => format!("{} seconds", duration_secs),
+            60..3600 => format!("{} minutes {} seconds", duration_secs / 60, duration_secs % 60),
+            _ => format!("{} hours {} minutes {} seconds", duration_secs / 3600, (duration_secs % 3600) / 60, duration_secs % 60),
+        };
+        log::info!("{} took: {}", message, format);
+    }
+
     pub async fn analyze(&self) -> anyhow::Result<()> {
+        let mut timestamp_start = Utc::now();
+        let overall_time = timestamp_start;
         //users section
         log::info!("Getting users from github");
         let users = self
@@ -56,9 +74,15 @@ impl Analyze {
             log::error!("Error: {:?}", res);
         }
 
+        Self::log_duration(timestamp_start, Utc::now(), "Getting users from github: ");
+        timestamp_start = Utc::now();
+
         // pr section
         // TODO hardcoded number of pages
         let prs = self.github.get_pull_requests(State::All, 101).await?;
+        Self::log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
+        timestamp_start = Utc::now();
+
 
         // proggress bar
         let multi = MULTI_PROGRESS_BAR.clone();
@@ -81,29 +105,22 @@ impl Analyze {
 
             let sha = match &pr.state {
                 PullRequestStatus::Merged { merge_sha, time: _ } => merge_sha,
-                _ => {
-                    log::warn!("PR #{} is not merged", pr.pr_number);
+                _ => continue
+            };
+
+            //obtain modified files
+            let files = match self.repo.modified_files(Oid::from_str(sha.as_str()).unwrap_or(Oid::zero())) {
+                Ok(Some(files)) => files,
+                Ok(None) => {
+                    log::warn!("No modified files found for commit {}", sha);
+                    continue;
+                }
+                Err(e) => {
+                    log::error!("Error while getting modified files for commit {}: {:#?}", sha, e);
                     continue;
                 }
             };
 
-            let files = self.repo.modified_files(
-                // Oid::from_str(sha.as_str()).unwrap_or_else(|_| panic!("Invalid sha: {}", sha)),
-                Oid::from_str(sha.as_str()).unwrap_or(Oid::zero()),
-            );
-
-            if files.is_err() {
-                log::error!("Error while getting modified files: {:#?}", files);
-            };
-
-            let files = files?;
-
-            if files.is_none() {
-                log::warn!("No modified files found");
-                continue;
-            }
-
-            let files = files.unwrap();
             for file in files {
                 let activity = FileActivity {
                     pr: pr.pr_number,
@@ -118,6 +135,8 @@ impl Analyze {
         }
         bar.finish_with_message("Finished processing PRs");
         multi.remove(&bar);
+        Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
+        Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
         Ok(())
     }
 }

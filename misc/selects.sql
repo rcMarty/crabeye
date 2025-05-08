@@ -1,18 +1,18 @@
 select count(state)
-from pr_event_log
+from pr_state_history
 where state = 'merged'
   and timestamp > '2023-01-01';
 
 -- 2) Jaký byl stav konkrétního PR v daný timestamp?
 SELECT distinct state
-FROM pr_event_log
+FROM pr_state_history
 WHERE pr = 138694
   and timestamp between '2025-03-21' and '2025-03-22'
 ORDER BY timestamp DESC;
 
 -- 1) Jaký byl počet PR v daném stavu (waiting for review, waiting for author, waiting for bors, merged) v daný timestamp/den.
 SELECT count(*) as count
-FROM pr_event_log
+FROM pr_state_history
 WHERE timestamp BETWEEN '2025-03-21' AND '2025-03-22'
   AND state = 'open';
 
@@ -50,10 +50,9 @@ order by count desc;
 
 -- 5) dotaz: PR, které čekají nejdelší dobu na review (jednodušší verze: jsou nejdelší čas ve stavu "waiting-on-review",
 select pr, timestamp
-from pr_event_log
-where state = 'S-waiting-on-review'
-   or state = 'S-waiting-on-bors'
-   or state = 'S-waiting-on-author'
+from pr_state_history as p
+where NOT EXISTS (SELECT id FROM pr_state_history AS p2 WHERE p.id = p2.id AND p2.timestamp > p.timestamp)
+  AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR p.state = 'S-waiting-on-author')
 order by timestamp;
 
 
@@ -62,4 +61,8 @@ order by timestamp;
 -- tohle git umí automaticky, přes SQL by se to asi dělalo naivně skenem přes všechny PR v daném časovém horizontu
 select *
 from file_activity
-where file_path like 'src/libsyntax/parse/%'
+where file_path like 'src/libsyntax/parse/%';
+
+select *
+from pr_state_history
+where pr = 129342;

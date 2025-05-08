@@ -13,36 +13,39 @@ Track everything about contributors, issues, and repository activity — all wri
 
 ## Usage
 
-First of all, you need to setup your database. You can do it by running the following command:
+First of all, you need to setup your postgres database.
+
+*in .idea there are all configs for database `ranal` on `localhost`*
 
 *if you dont have sqlx-cli installed, you can do it by
 running: ``cargo install sqlx-cli --features native-tls, sqlite``*
 
+And then you can run migrations:
+
 ```bash
-sqlx database create
 sqlx migrate run
 ```
 
-and also you must have
+also you must have
 
-When you want to get data for analyzing, you need to add argument `--analyze` to the command.
+When you want to get data for analyzing (so far only obtaining data to database), you need to add subcommand `analyze`
+to the command.
 
 ```bash
-cargo run --release -- --analyze
+cargo run --release -- analyze
 ```
 
-Otherwise, if you want to only try analysis and so on you can run it without arguments
+Otherwise, if you want to only try some analytics queries, you can find some examples under subcommand `request`.
 
 ```bash
-cargo run --release
+cargo run --release -- request help
 ```
 
 Link to database schema [here](https://dbdiagram.io/d/6791134c37f5d6cbeb969453)
 
 ## TODO
 
-- [ ] ratatui TUI
-- [ ] 
+- add tests
 
 ## License
 

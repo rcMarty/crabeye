@@ -24,6 +24,5 @@ Cargo.lock
 test_repos/
 
 #exclude configs and databases
-config.toml
 .env
 data.db**

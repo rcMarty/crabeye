@@ -1,2 +1,2 @@
 pub mod pr_event;
-pub mod user;
+pub mod team_member;

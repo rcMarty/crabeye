@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo};
-use sqlx::{Encode, Row, Sqlite, Type};
+use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -83,9 +83,9 @@ impl Display for PrEvent {
     }
 }
 
-// Custom FromRow implementation for PrEvent
-impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for PrEvent {
-    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+///Custom FromRow implementation for PrEvent
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let pr_number: i64 = row.try_get("pr")?;
         let state: String = row.try_get("state")?;
         let timestamp: DateTime<Utc> = row.try_get("timestamp")?;
@@ -136,6 +136,17 @@ impl PullRequestStatus {
         }
     }
 
+    pub fn as_str(&self) -> &str {
+        match self {
+            PullRequestStatus::Open { .. } => "open",
+            PullRequestStatus::Closed { .. } => "closed",
+            PullRequestStatus::Merged { .. } => "merged",
+            PullRequestStatus::WaitingForReview { .. } => "S-waiting-on-review",
+            PullRequestStatus::WaitingForBors { .. } => "S-waiting-on-bors",
+            PullRequestStatus::WaitingForAuthor { .. } => "S-waiting-on-author",
+        }
+    }
+
     /// Find the first matching status in the vector
     pub fn find_status(
         vector: Vec<String>,
@@ -148,26 +159,18 @@ impl PullRequestStatus {
     }
 }
 
-impl Type<Sqlite> for PullRequestStatus {
-    fn type_info() -> SqliteTypeInfo {
-        <String as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for PullRequestStatus {
+/// Custom Encode implementation for PullRequestStatus
+impl<'q> Encode<'q, Postgres> for PullRequestStatus {
     fn encode_by_ref(
         &self,
-        buf: &mut Vec<SqliteArgumentValue<'q>>,
-    ) -> Result<sqlx::encode::IsNull, BoxDynError> {
-        let string_repr = match self {
-            PullRequestStatus::Open { .. } => "open".to_string(),
-            PullRequestStatus::Closed { .. } => "closed".to_string(),
-            PullRequestStatus::Merged { .. } => "merged".to_string(),
-            PullRequestStatus::WaitingForReview { .. } => "S-waiting-on-review".to_string(),
-            PullRequestStatus::WaitingForBors { .. } => "S-waiting-on-bors".to_string(),
-            PullRequestStatus::WaitingForAuthor { .. } => "S-waiting-on-author".to_string(),
-        };
-
-        <std::string::String as sqlx::Encode<'_, Sqlite>>::encode_by_ref(&string_repr, buf)
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <String as sqlx::Encode<'q, Postgres>>::encode_by_ref(&self.as_str().to_string(), buf)
+    }
+}
+/// Tell postgres into what type to decode the value
+impl sqlx::Type<Postgres> for PullRequestStatus {
+    fn type_info() -> <Postgres as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<Postgres>>::type_info()
     }
 }

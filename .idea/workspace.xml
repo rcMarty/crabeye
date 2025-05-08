@@ -11,14 +11,29 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="beginning of ratatui">
-      <change afterPath="$PROJECT_DIR$/src/commands.rs" afterDir="false" />
+    <list default="true" id="d7069bde-b74e-4cf9-92d6-4bb120930121" name="Changes" comment="rewrite to postgre">
+      <change afterPath="$PROJECT_DIR$/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/sqldialects.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/migrations/20250323121106_delete.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/db/model/team_member.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/ranal.iml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20250323151108_init.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151108_init.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/migrations/20250323151110_add_indexes.sql" beforeDir="false" afterPath="$PROJECT_DIR$/migrations/20250323151110_add_indexes.sql" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/misc/notes.md" beforeDir="false" afterPath="$PROJECT_DIR$/misc/notes.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/misc/selects.sql" beforeDir="false" afterPath="$PROJECT_DIR$/misc/selects.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/readme.md" beforeDir="false" afterPath="$PROJECT_DIR$/readme.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/model/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/model/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/model/pr_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/model/pr_event.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/db/model/user.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/git/github.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/github.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/git/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/git/mod.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -26,13 +41,6 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
-  <component name="FileTemplateManagerImpl">
-    <option name="RECENT_TEMPLATES">
-      <list>
-        <option value="Rust File" />
-      </list>
-    </option>
-  </component>
   <component name="FormatOnSaveOptions">
     <option name="myRunOnSave" value="true" />
   </component>
@@ -52,33 +60,24 @@
   }
 }</component>
   <component name="MacroExpansionManager">
-    <option name="directoryName" value="1O86TlbC" />
-  </component>
-  <component name="OptimizeOnSaveOptions">
-    <option name="myRunOnSave" value="true" />
-  </component>
-  <component name="ProblemsViewState">
-    <option name="selectedTabId" value="CurrentFile" />
+    <option name="directoryName" value="4gBebbcY" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 1
 }</component>
-  <component name="ProjectId" id="2uE6gpcqxyalw60M4Q3BAA1KWII" />
+  <component name="ProjectId" id="2wognCjlgrWzFhaofksaZ0wtbu8" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
-    &quot;Cargo.Run ranal.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
-    &quot;database.data.extractors.current.export.id&quot;: &quot;Markdown-Groovy.md.groovy&quot;,
-    &quot;database.data.extractors.current.id&quot;: &quot;Markdown-Groovy.md.groovy&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/rc_marty/OneDrive/Dokumenty/_Škola/Diplomka/ranal&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;development&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -86,46 +85,25 @@
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
     &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
-    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;advanced.settings&quot;,
+    &quot;rearrange.code.on.save&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;language.rust.cargo.check&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   },
   &quot;keyToStringList&quot;: {
     &quot;DatabaseDriversLRU&quot;: [
+      &quot;postgresql&quot;,
       &quot;sqlite&quot;
     ]
   }
 }</component>
-  <component name="RecentsManager">
-    <key name="CopyFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$" />
-    </key>
-  </component>
   <component name="RsExternalLinterProjectSettings">
+    <option name="channel" value="stable" />
     <option name="tool" value="Clippy" />
   </component>
-  <component name="RunManager" selected="Cargo.Run ranal">
-    <configuration name="Run ranal" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <component name="RunManager">
+    <configuration name="Run" type="CargoCommandRunConfiguration" factoryName="Cargo Command" nameIsGenerated="true">
       <option name="buildProfileId" value="dev" />
-      <option name="command" value="run --package ranal --bin ranal" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <envs />
-      <option name="emulateTerminal" value="true" />
-      <option name="channel" value="DEFAULT" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="buildTarget" value="REMOTE" />
-      <option name="backtrace" value="SHORT" />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test ranal" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="command" value="test --workspace" />
+      <option name="command" value="run" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
       <option name="emulateTerminal" value="true" />
@@ -145,119 +123,27 @@
   <component name="RustProjectSettings">
     <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
   </component>
-  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="9ffa62b6-1350-40c3-8fb5-21e09d67cb83" name="Changes" comment="" />
-      <created>1741801501821</created>
+      <changelist id="d7069bde-b74e-4cf9-92d6-4bb120930121" name="Changes" comment="" />
+      <created>1746713505908</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
-      <updated>1741801501821</updated>
-      <workItem from="1741801503248" duration="2499000" />
-      <workItem from="1742737193462" duration="19184000" />
-      <workItem from="1742913696737" duration="22782000" />
-      <workItem from="1743950969018" duration="14423000" />
-      <workItem from="1743969168738" duration="5258000" />
-      <workItem from="1744033000453" duration="1555000" />
-      <workItem from="1744143910920" duration="1495000" />
-      <workItem from="1745327177572" duration="17372000" />
-      <workItem from="1745425536679" duration="1114000" />
-      <workItem from="1745426662132" duration="1582000" />
-      <workItem from="1745439369475" duration="1396000" />
-      <workItem from="1745440772963" duration="6248000" />
-      <workItem from="1746540294229" duration="1679000" />
-      <workItem from="1746541974865" duration="32000" />
-      <workItem from="1746542016658" duration="701000" />
-      <workItem from="1746542726053" duration="1244000" />
-      <workItem from="1746543978912" duration="1919000" />
-      <workItem from="1746546521534" duration="2498000" />
-      <workItem from="1746549102196" duration="7997000" />
+      <updated>1746713505908</updated>
+      <workItem from="1746713507382" duration="3449000" />
+      <workItem from="1746716964621" duration="178000" />
+      <workItem from="1746717152502" duration="1512000" />
+      <workItem from="1746721334705" duration="2208000" />
+      <workItem from="1746723554807" duration="1660000" />
+      <workItem from="1746725227630" duration="9285000" />
     </task>
-    <task id="LOCAL-00001" summary="misc edit">
-      <option name="closed" value="true" />
-      <created>1741802770055</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1741802770055</updated>
-    </task>
-    <task id="LOCAL-00002" summary="refactor: enhance logging and update pull request handling">
-      <option name="closed" value="true" />
-      <created>1742756539043</created>
-      <option name="number" value="00002" />
-      <option name="presentableId" value="LOCAL-00002" />
-      <option name="project" value="LOCAL" />
-      <updated>1742756539043</updated>
-    </task>
-    <task id="LOCAL-00003" summary="sql usecase requests done">
-      <option name="closed" value="true" />
-      <created>1742929830435</created>
-      <option name="number" value="00003" />
-      <option name="presentableId" value="LOCAL-00003" />
-      <option name="project" value="LOCAL" />
-      <updated>1742929830435</updated>
-    </task>
-    <task id="LOCAL-00004" summary="probably parsing and pushing done">
-      <option name="closed" value="true" />
-      <created>1744143967231</created>
-      <option name="number" value="00004" />
-      <option name="presentableId" value="LOCAL-00004" />
-      <option name="project" value="LOCAL" />
-      <updated>1744143967231</updated>
-    </task>
-    <task id="LOCAL-00005" summary="basic users done">
-      <option name="closed" value="true" />
-      <created>1745339781962</created>
-      <option name="number" value="00005" />
-      <option name="presentableId" value="LOCAL-00005" />
-      <option name="project" value="LOCAL" />
-      <updated>1745339781962</updated>
-    </task>
-    <task id="LOCAL-00006" summary="some basic analyzing request are done">
-      <option name="closed" value="true" />
-      <created>1745446262618</created>
-      <option name="number" value="00006" />
-      <option name="presentableId" value="LOCAL-00006" />
-      <option name="project" value="LOCAL" />
-      <updated>1745446262618</updated>
-    </task>
-    <task id="LOCAL-00007" summary="beginning of ratatui">
-      <option name="closed" value="true" />
-      <created>1745446283057</created>
-      <option name="number" value="00007" />
-      <option name="presentableId" value="LOCAL-00007" />
-      <option name="project" value="LOCAL" />
-      <updated>1745446283057</updated>
-    </task>
-    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
-  <component name="Vcs.Log.Tabs.Properties">
-    <option name="TAB_STATES">
-      <map>
-        <entry key="MAIN">
-          <value>
-            <State />
-          </value>
-        </entry>
-      </map>
-    </option>
-  </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="misc edit" />
-    <MESSAGE value="refactor: enhance logging and update pull request handling" />
-    <MESSAGE value="sql usecase requests done" />
-    <MESSAGE value="probably parsing and pushing done" />
-    <MESSAGE value="basic users done" />
-    <MESSAGE value="some basic analyzing request are done" />
-    <MESSAGE value="beginning of ratatui" />
-    <option name="LAST_COMMIT_MESSAGE" value="beginning of ratatui" />
-  </component>
-  <component name="XSLT-Support.FileAssociations.UIState">
-    <expand />
-    <select />
+    <MESSAGE value="rewrite to postgre" />
+    <option name="LAST_COMMIT_MESSAGE" value="rewrite to postgre" />
   </component>
 </project>

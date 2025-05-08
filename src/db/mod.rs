@@ -5,12 +5,11 @@ pub mod model;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
 use anyhow::Result;
 use chrono::{Datelike, NaiveDate, Utc};
-use rust_team_data::v1::PermissionPerson;
-use sqlx::{Pool, Sqlite, SqlitePool};
+use sqlx::{PgPool, Pool, Postgres};
 
 #[derive(Debug, Clone)]
 pub struct Database {
-    pub pool: Pool<Sqlite>,
+    pub pool: Pool<Postgres>,
 }
 
 // part where is inserting into database
@@ -20,55 +19,90 @@ impl Database {
         // if !Sqlite::database_exists(database_url).await? {
         //     Sqlite::create_database(database_url).await?;
         // }
-        let pool = SqlitePool::connect(database_url).await?;
+        let pool = PgPool::connect(database_url).await?;
         sqlx::migrate!().run(&pool).await?;
 
         Ok(Self { pool })
     }
 
+    fn team_kind_to_str(kind: rust_team_data::v1::TeamKind) -> &'static str {
+        match kind {
+            rust_team_data::v1::TeamKind::Team => "team",
+            rust_team_data::v1::TeamKind::WorkingGroup => "working_group",
+            rust_team_data::v1::TeamKind::ProjectGroup => "project_group",
+            rust_team_data::v1::TeamKind::MarkerTeam => "marker_team",
+            rust_team_data::v1::TeamKind::Unknown => "unknown",
+        }
+    }
+
     /// Cleans the old users from table and insert new users
-    pub async fn insert_team_members(&self, team_members: &[PermissionPerson]) -> Result<()> {
+    pub async fn insert_team_members(&self, team_members: &[model::team_member::TeamMember]) -> Result<()> {
         sqlx::query!(
             r#"-- noinspection SqlWithoutWhereForFile
 DELETE FROM team_members
 "#
         )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool)
+            .await?;
+
 
         for user in team_members.iter() {
             let gh_id = user.github_id as i64;
+            let kind = Self::team_kind_to_str(user.kind);
             sqlx::query!(
                 r#"
-INSERT INTO team_members (github_id, github_name, name)
-VALUES (?,?,?)"#,
+INSERT INTO team_members (github_id, github_name, name,team, subteam_of, kind)
+VALUES ($1,$2,$3,$4,$5,$6)
+"#,
                 gh_id,
-                user.github,
-                user.name
+                user.github_name,
+                user.name,
+                user.team,
+                user.subteam_of.as_deref(),
+                kind
             )
-            .execute(&self.pool)
-            .await?;
+                .execute(&self.pool)
+                .await?;
         }
         Ok(())
     }
 
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
-        let timestamp = event.get_timestamp();
+        let timestamp = event.get_timestamp().naive_utc();
         let merge_sha = event.get_merge_sha();
         let author_id = event.author_id.0 as i64;
+
         sqlx::query!(
             r#"
-INSERT INTO pr_event_log (pr, state,timestamp, merge_sha, author_id) 
-VALUES (?,?,?,?,?)
+INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, author_id)
+VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT(pr) DO UPDATE SET
+current_state = excluded.current_state,
+    timestamp = excluded.timestamp,
+    merge_sha = excluded.merge_sha,
+    author_id = excluded.author_id
 "#,
             event.pr_number,
-            event.state,
+            &event.state as &PullRequestStatus,
             timestamp,
             merge_sha,
             author_id
         )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query!(
+            r#"
+INSERT INTO pr_state_history (pr, state,timestamp, merge_sha) 
+VALUES ($1,$2,$3,$4)
+"#,
+            event.pr_number,
+            event.state.as_str(),
+            timestamp,
+            merge_sha
+        )
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -77,15 +111,15 @@ VALUES (?,?,?,?,?)
         sqlx::query!(
             r#"
 INSERT INTO file_activity(pr, file_path, user_login, timestamp)
-VALUES (?, ?, ?, ?)
+VALUES ($1,$2,$3,$4)
                "#,
             activity.pr,
             activity.file_path,
             user_id,
-            activity.timestamp
+            activity.timestamp.naive_utc()
         )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
@@ -100,22 +134,22 @@ impl Database {
         pr: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<String>> {
-        let timestamp_start =
-            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let record = sqlx::query!(
             r#"
-SELECT distinct state FROM pr_event_log
-WHERE pr = ? and timestamp between ? and ?
+SELECT distinct state, timestamp
+FROM pr_state_history
+WHERE pr = $1 and timestamp between $2 and $3
 ORDER BY timestamp DESC
-               "#,
+"#,
             pr,
             timestamp_start,
             timestamp_end
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
 
         let ret = record.iter().map(|r| r.state.clone()).collect::<Vec<_>>();
         log::debug!("return value from get pr state at: \n{:?}", ret);
@@ -133,23 +167,22 @@ ORDER BY timestamp DESC
         timestamp: chrono::DateTime<chrono::Utc>,
         state: PullRequestStatus,
     ) -> Result<i64> {
-        let timestamp_start =
-            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let record = sqlx::query!(
             r#"
-SELECT count(*) as count FROM pr_event_log
-WHERE timestamp BETWEEN ? AND ? AND state = ?;
+SELECT count(*) as count FROM pr_state_history
+WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
                "#,
             timestamp_start,
             timestamp_end,
-            state
+            state.as_str()
         )
-        .fetch_one(&self.pool)
-        .await?;
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok(record.count)
+        Ok(record.count.unwrap())
     }
 
     /**
@@ -162,19 +195,18 @@ WHERE timestamp BETWEEN ? AND ? AND state = ?;
         timestamp: chrono::DateTime<chrono::Utc>,
         n: i64,
     ) -> Result<Vec<(String, i64)>> {
-        let timestamp_start =
-            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let record = sqlx::query!(
             r#"
 select pr, file_path
 from file_activity
-where user_login = ?
-  and timestamp between ? and ?
-  and pr = ?
+where user_login = $1
+  and timestamp between $2 and $3
+  and pr = $4
 order by timestamp DESC
-limit ?;
+LIMIT $5;
 "#,
             user_id,
             timestamp_start,
@@ -182,8 +214,8 @@ limit ?;
             pr_id,
             n
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
         Ok(record
             .iter()
             .map(|r| (r.file_path.clone(), r.pr))
@@ -198,9 +230,8 @@ limit ?;
         &self,
         file_path: String,
         timestamp: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Vec<String>> {
-        let timestamp_start =
-            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
+    ) -> Result<Vec<i64>> {
+        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
         let file_path = format!("{}%", file_path);
 
@@ -208,15 +239,15 @@ limit ?;
             r#"
 select distinct user_login
 from file_activity
-where file_path like ?
-  and timestamp between ? and ?;
+where file_path like $1
+  and timestamp between $2 and $3
 "#,
             file_path,
             timestamp_start,
             timestamp_end
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
         Ok(record
             .iter()
             .map(|r| r.user_login.clone())
@@ -230,22 +261,17 @@ where file_path like ?
         &self,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<(i64, chrono::DateTime<chrono::Utc>)>> {
-        let timestamp_start =
-            NaiveDate::from_ymd_opt(timestamp.year(), timestamp.month(), timestamp.day()).unwrap();
-        let timestamp_end = timestamp_start + chrono::Duration::days(1);
-
         let record = sqlx::query!(
             r#"
 select pr, timestamp
-from pr_event_log
-where state = 'S-waiting-on-review'
-   or state = 'S-waiting-on-bors'
-   or state = 'S-waiting-on-author'
+from pr_state_history as p
+where NOT EXISTS (SELECT id FROM pr_state_history AS p2 WHERE p.id = p2.id AND p2.timestamp > p.timestamp)
+  AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR p.state = 'S-waiting-on-author')
 order by timestamp;
 "#,
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
         Ok(record
             .iter()
             .map(|r| {
