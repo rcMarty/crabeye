@@ -20,9 +20,8 @@ WHERE timestamp BETWEEN '2025-03-21' AND '2025-03-22'
 -- TODO netuším jk získat zda byl soubor upraven nebo reviewován. odkud to zjistím?
 select pr, file_path, timestamp
 from file_activity
-where user_login = 476013
+where user_login = 4539057
   and timestamp between '2025-03-21' and '2025-03-22'
-  and pr = 138791
 order by timestamp desc
 limit 10;
 

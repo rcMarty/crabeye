@@ -63,13 +63,11 @@ async fn main() -> anyhow::Result<()> {
             }
             RequestSubcommands::TopNFiles {
                 user_id,
-                pr_id,
-                date,
+                days,
                 n,
             } => {
-                log::debug!("date: {:?}", date);
-                let timestamp = date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-                let files = db.get_top_n_files(user_id, pr_id, timestamp, n).await?;
+                log::debug!("last: {} days", days);
+                let files = db.get_top_n_files(user_id, days, n).await?;
                 log::info!("Top N Files: {:?}", files);
             }
             RequestSubcommands::UsersWhoModifiedFile { file_path, date } => {

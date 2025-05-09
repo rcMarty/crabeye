@@ -191,12 +191,11 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
     pub async fn get_top_n_files(
         &self,
         user_id: i64,
-        pr_id: i64,
-        timestamp: chrono::DateTime<chrono::Utc>,
+        duration: chrono::Duration,
         n: i64,
     ) -> Result<Vec<(String, i64)>> {
-        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+        let timestamp_start = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_end = timestamp_start + duration;
 
         let record = sqlx::query!(
             r#"
@@ -204,14 +203,12 @@ select pr, file_path
 from file_activity
 where user_login = $1
   and timestamp between $2 and $3
-  and pr = $4
 order by timestamp DESC
-LIMIT $5;
+LIMIT $4;
 "#,
             user_id,
             timestamp_start,
             timestamp_end,
-            pr_id,
             n
         )
             .fetch_all(&self.pool)
