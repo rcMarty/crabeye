@@ -194,8 +194,8 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
         duration: chrono::Duration,
         n: i64,
     ) -> Result<Vec<(String, i64)>> {
-        let timestamp_start = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let timestamp_end = timestamp_start + duration;
+        let timestamp_end = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_start = timestamp_end - duration;
 
         let record = sqlx::query!(
             r#"

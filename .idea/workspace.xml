@@ -11,11 +11,8 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d7069bde-b74e-4cf9-92d6-4bb120930121" name="Changes" comment="rewrite to postgres and edit users">
+    <list default="true" id="d7069bde-b74e-4cf9-92d6-4bb120930121" name="Changes" comment="bugfix topNfiles">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/misc/notes.md" beforeDir="false" afterPath="$PROJECT_DIR$/misc/notes.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/misc/selects.sql" beforeDir="false" afterPath="$PROJECT_DIR$/misc/selects.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/commands.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/commands.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/db/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/db/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
@@ -121,7 +118,7 @@
       <workItem from="1746725227630" duration="10076000" />
       <workItem from="1746788085657" duration="1969000" />
       <workItem from="1746790065842" duration="108000" />
-      <workItem from="1746790189507" duration="3490000" />
+      <workItem from="1746790189507" duration="3965000" />
     </task>
     <task id="LOCAL-00001" summary="rewrite to postgres and edit users">
       <option name="closed" value="true" />
@@ -131,7 +128,15 @@
       <option name="project" value="LOCAL" />
       <updated>1746742731770</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="bugfix topNfiles">
+      <option name="closed" value="true" />
+      <created>1746793724717</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1746793724717</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -140,6 +145,7 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="rewrite to postgre" />
     <MESSAGE value="rewrite to postgres and edit users" />
-    <option name="LAST_COMMIT_MESSAGE" value="rewrite to postgres and edit users" />
+    <MESSAGE value="bugfix topNfiles" />
+    <option name="LAST_COMMIT_MESSAGE" value="bugfix topNfiles" />
   </component>
 </project>
