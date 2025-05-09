@@ -41,10 +41,8 @@ pub enum RequestSubcommands {
     TopNFiles {
         #[arg(short, long)]
         user_id: i64,
-        #[arg(short, long)]
-        pr_id: i64,
-        #[arg(short, long, value_parser = parse_date, default_value = "2025-03-21")]
-        date: NaiveDate,
+        #[arg(short, long, value_parser = parse_duration, default_value = "30")]
+        days: chrono::Duration,
         #[arg(short, long, default_value = "10")]
         n: i64,
     },
@@ -64,6 +62,10 @@ pub enum RequestSubcommands {
 
 pub fn parse_date(date: &str) -> Result<NaiveDate, anyhow::Error> {
     NaiveDate::parse_from_str(date, "%Y-%m-%d").context("Format (YYYY-MM-DD)")
+}
+pub fn parse_duration(duration: &str) -> Result<chrono::Duration, anyhow::Error> {
+    let duration = duration.trim().parse::<u32>().context("Duration should be non negative in days from now")?;
+    Ok(chrono::Duration::days(duration as i64))
 }
 
 pub fn parse_event(event: &str) -> Result<PullRequestStatus, String> {

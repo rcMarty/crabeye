@@ -23,7 +23,9 @@ release
 
 PŘECHOD NA POSTGRES kvůli jednoduchosti nasaditelnosti a kvůli migracím že jsou složité
 
-postgres o trochu rychlejší cca 8min 10000 pull requestů vs 10min
+postgres o trochu rychlejší cca 8min 10000 pull requestů vs cca 10min bez bulk insertu
+
+
 
 
 
