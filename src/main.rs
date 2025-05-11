@@ -1,9 +1,9 @@
-mod api;
-mod commands;
-mod config;
-mod db;
-mod git;
-mod monitoring;
+pub mod api;
+pub mod commands;
+pub mod config;
+pub mod db;
+pub mod git;
+pub mod monitoring;
 
 use crate::commands::{Cli, Commands, RequestSubcommands};
 use crate::config::Config;
@@ -92,4 +92,70 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Exiting...");
 
     Ok(())
+}
+
+
+#[tokio::test]
+async fn test_insert_and_query_pr_event() {
+    dotenv().ok();
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db = Database::new(&db_url).await.expect("Failed to connect to database");
+
+    let pr_event = crate::db::model::pr_event::PrEvent {
+        pr_number: 12345,
+        author_id: octocrab::models::UserId(1),
+        state: PullRequestStatus::Open {
+            time: chrono::Utc::now(),
+        },
+    };
+
+    db.insert_pr_event(&pr_event)
+        .await
+        .expect("Failed to insert PR event");
+
+    let result = db
+        .get_pr_state_at(pr_event.pr_number, chrono::Utc::now())
+        .await
+        .expect("Failed to query PR state");
+
+    assert!(result.contains(&"open".to_string()));
+}
+
+#[tokio::test]
+async fn test_get_pr_count_in_state() {
+    dotenv().ok();
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db = Database::new(&db_url).await.expect("Failed to connect to database");
+
+    let timestamp = chrono::Utc::now();
+    let state = PullRequestStatus::Open { time: timestamp };
+
+    let count = db
+        .get_pr_count_in_state(timestamp, state)
+        .await
+        .expect("Failed to get PR count in state");
+
+    assert!(count >= 0);
+}
+
+#[tokio::test]
+async fn test_github_api_get_authorized_users() {
+    dotenv().ok();
+    let github_token = env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN must be set");
+    let repo_owner = env::var("REPO_OWNER").expect("REPO_OWNER must be set");
+    let repo_name = env::var("REPO_NAME").expect("REPO_NAME must be set");
+
+    let github_api = crate::git::github::GitHubApi::new(
+        repo_owner,
+        repo_name,
+        secrecy::SecretString::new(Box::from(github_token)),
+    )
+        .expect("Failed to initialize GitHub API");
+
+    let users = github_api
+        .get_authorized_users()
+        .await
+        .expect("Failed to fetch authorized users");
+
+    assert!(!users.is_empty());
 }
