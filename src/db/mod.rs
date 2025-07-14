@@ -46,19 +46,46 @@ DELETE FROM team_members
             .await?;
 
 
+        let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
+        let github_names: Vec<&str> = team_members.iter().map(|user| user.github_name.as_str()).collect();
+        let names: Vec<&str> = team_members.iter().map(|user| user.name.as_str()).collect();
+        let teams: Vec<&str> = team_members.iter().map(|user| user.team.as_str()).collect();
+        let subteams: Vec<Option<&str>> = team_members.iter().map(|user| user.subteam_of.as_deref()).collect();
+        let kinds: Vec<&str> = team_members.iter().map(|user| Self::team_kind_to_str(user.kind)).collect();
+
+        sqlx::query!(
+    r#"
+INSERT INTO team_members (github_id, github_name, name, team, subteam_of, kind)
+SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::TEXT[])
+"#,
+    &github_ids[..],
+    &github_names[..] as &[&str],
+    &names[..] as &[&str],
+    &teams[..] as &[&str],
+    &subteams[..] as &[Option<&str>],
+    &kinds[..] as &[&str]
+)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Cleans the old users from table and insert new users
+    pub async fn upsert_contributors(&self, team_members: &[model::team_member::Contributor]) -> Result<()> {
         for user in team_members.iter() {
             let gh_id = user.github_id as i64;
-            let kind = Self::team_kind_to_str(user.kind);
+            let kind = Self::team_kind_to_str(rust_team_data::v1::TeamKind::Unknown); // Contributors are not part of any team, so we use Unknown kind
             sqlx::query!(
                 r#"
 INSERT INTO team_members (github_id, github_name, name,team, subteam_of, kind)
-VALUES ($1,$2,$3,$4,$5,$6)
+select $1,$2,$3,$4,$5,$6
+where not exists (select 1 from team_members where github_id = $1);
 "#,
                 gh_id,
                 user.github_name,
-                user.name,
-                user.team,
-                user.subteam_of.as_deref(),
+                "",
+                "",
+                "",
                 kind
             )
                 .execute(&self.pool)
@@ -66,6 +93,7 @@ VALUES ($1,$2,$3,$4,$5,$6)
         }
         Ok(())
     }
+
 
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
         let timestamp = event.get_timestamp().naive_utc();
@@ -93,7 +121,7 @@ current_state = excluded.current_state,
 
         sqlx::query!(
             r#"
-INSERT INTO pr_state_history (pr, state,timestamp, merge_sha) 
+INSERT INTO pr_state_history (pr, state,timestamp, merge_sha)
 VALUES ($1,$2,$3,$4)
 "#,
             event.pr_number,

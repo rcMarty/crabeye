@@ -4,6 +4,7 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
+use crate::db::model::team_member::TeamMember;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PrEvent {
@@ -63,6 +64,7 @@ impl PrEvent {
     }
 }
 
+
 impl Display for PrEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -115,11 +117,11 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
 
 impl PullRequestStatus {
     pub fn from_str(
-        value: &String,
+        value: &str,
         time: DateTime<Utc>,
         merge_sha: Option<String>,
     ) -> Option<Self> {
-        match value.as_str() {
+        match value {
             "open" => Some(PullRequestStatus::Open { time }),
             "closed" => Some(PullRequestStatus::Closed { time }),
             "merged" => {

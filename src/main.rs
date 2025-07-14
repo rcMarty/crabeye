@@ -4,6 +4,7 @@ pub mod config;
 pub mod db;
 pub mod git;
 pub mod monitoring;
+mod misc;
 
 use crate::commands::{Cli, Commands, RequestSubcommands};
 use crate::config::Config;

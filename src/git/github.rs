@@ -13,7 +13,9 @@ use octocrab::{params, Octocrab};
 use rust_team_data::v1::{PermissionPerson, Team};
 use secrecy::SecretString;
 use std::fmt::format;
-use crate::db::model::team_member::TeamMember;
+use indicatif::ProgressBar;
+use crate::db::model::team_member::{Contributor, TeamMember};
+use crate::misc::with_progress_bar_async;
 
 pub struct GitHubApi {
     owner: String,
@@ -116,14 +118,13 @@ impl GitHubApi {
     pub async fn get_pull_requests(
         &self,
         state: params::State,
-        no_of_pages: u32,
-    ) -> anyhow::Result<Vec<PrEvent>> {
+        sync_mode: SyncMode,
+    ) -> anyhow::Result<(Vec<PrEvent>, Vec<Contributor>)> {
         let pr = self
             .octocrab
             .pulls(self.owner.clone(), self.repository.clone())
             .list()
             .state(state)
-            .per_page(100)
             .send()
             .await
             .context(format!(
@@ -131,11 +132,18 @@ impl GitHubApi {
                 self.owner, self.repository
             ))?;
 
-        log::info!(
-            "Found less than {} pull requests, no of pages: {}",
-            pr.items.len() * pr.number_of_pages().unwrap_or(0) as usize,
-            pr.number_of_pages().unwrap_or(0)
-        );
+        log::info!("Found less than {} pull requests, no of pages: {}",pr.items.len() * pr.number_of_pages().unwrap_or(0) as usize,pr.number_of_pages().unwrap_or(0));
+
+        let no_of_pages: u32 = match sync_mode {
+            SyncMode::Since(since) => {
+                log::info!("Synchronizing pull requests since {since}");
+                0
+            }
+            SyncMode::Last(n) => {
+                log::info!("Synchronizing last {n} pages of pull requests");
+                n
+            }
+        };
 
         let real_no_of_pages = if pr.number_of_pages() < Some(no_of_pages) {
             log::warn!("Found less than requested ({no_of_pages}) pull requests");
@@ -149,95 +157,95 @@ impl GitHubApi {
         };
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
+        let mut parsed_users: Vec<Contributor> = Vec::new();
 
-        // proggress bar
-        let multi = MULTI_PROGRESS_BAR.clone();
-        let bar = multi.add(indicatif::ProgressBar::new(real_no_of_pages as u64));
-        bar.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
-                .progress_chars("##-"),
-        );
+        with_progress_bar_async(real_no_of_pages as usize, "Processing".parse()?, async |bar: &ProgressBar| {
+            for page in 1..real_no_of_pages {
+                bar.inc(1);
+                bar.set_message(format!("Processing page {}/{}", page, real_no_of_pages));
+                let pr = self
+                    .octocrab
+                    .pulls(self.owner.clone(), self.repository.clone())
+                    .list()
+                    .sort(Sort::Updated)
+                    .state(state)
+                    .per_page(100)
+                    .page(page)
+                    .direction(params::Direction::Descending)
+                    .send()
+                    .await
+                    .context(format!(
+                        "Failed to get pull requests for {}/{}",
+                        self.owner, self.repository
+                    ))?;
 
-        // requesting pages
-        for page in 1..real_no_of_pages {
-            bar.inc(1);
-            bar.set_message(format!("Processing page {}/{}", page, real_no_of_pages));
-            let pr = self
-                .octocrab
-                .pulls(self.owner.clone(), self.repository.clone())
-                .list()
-                .sort(Sort::Updated)
-                .state(state)
-                .per_page(100)
-                .page(page)
-                .direction(params::Direction::Descending)
-                .send()
-                .await
-                .context(format!(
-                    "Failed to get pull requests for {}/{}",
-                    self.owner, self.repository
-                ))?;
+                log::debug!("Requesting {page}/{no_of_pages} page of pull requests");
+                log::debug!("Found {} pull requests", pr.items.len());
 
-            log::debug!("Requesting {page}/{no_of_pages} page of pull requests");
-            log::debug!("Found {} pull requests", pr.items.len());
+                // check if there are no more PRs
+                if pr.items.is_empty() {
+                    break;
+                }
 
-            // check if there are no more PRs
-            if pr.items.is_empty() {
-                break;
+                for pr in pr.items {
+                    // log::info!("issue state: {:?}", pr.state);
+                    // log::info!("labels: {:#?}", pr.labels);
+                    //TODO add labels for pr events
+                    let pr_copy = pr.clone();
+                    parsed_users.push(Contributor::from(*pr_copy.user.expect("No user in Contributor")));
+
+                    let parsed = PrEvent {
+                        pr_number: pr.number as i64,
+                        author_id: pr.user.expect("No author in PrEvent").id,
+                        state: match (pr.state, pr.merged_at, pr.labels) {
+                            (Some(IssueState::Open), _, Some(labels)) => {
+                                PullRequestStatus::find_status(
+                                    labels
+                                        .into_iter()
+                                        .map(|label| label.name.to_string())
+                                        .collect::<Vec<String>>(),
+                                    pr.created_at.expect("Missing created time"),
+                                    None,
+                                )
+                                    .unwrap_or(PullRequestStatus::Open {
+                                        time: pr.created_at.expect("Missing created time"),
+                                    })
+                            }
+                            (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            },
+                            (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
+                                time: pr.closed_at.expect("Missing closed time"),
+                            },
+                            (Some(IssueState::Closed), Some(_), _) => PullRequestStatus::Merged {
+                                merge_sha: pr
+                                    .merge_commit_sha
+                                    .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
+                                    .unwrap_or_else(|| {
+                                        //panic!("Missing merge commit SHA {:#?} ", debug_pr)
+                                        Some("NONE".to_string())
+                                    })
+                                    .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
+                                time: pr.merged_at.expect("Missing merge time"),
+                            },
+                            (s, merged_at, labels) => {
+                                panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
+                            }
+                        },
+                    };
+                    parsed_prs.push(parsed);
+                }
             }
+            Ok(())
+        }).await?;
 
-            for pr in pr.items {
-                // log::info!("issue state: {:?}", pr.state);
-                // log::info!("labels: {:#?}", pr.labels);
-                //TODO add labels for pr events
-                let debug_pr = pr.clone();
-
-                let parsed = PrEvent {
-                    pr_number: pr.number as i64,
-                    author_id: pr.user.expect("No author in PrEvent").id,
-                    state: match (pr.state, pr.merged_at, pr.labels) {
-                        (Some(IssueState::Open), _, Some(labels)) => {
-                            PullRequestStatus::find_status(
-                                labels
-                                    .into_iter()
-                                    .map(|label| label.name.to_string())
-                                    .collect::<Vec<String>>(),
-                                pr.created_at.expect("Missing created time"),
-                                None,
-                            )
-                                .unwrap_or(PullRequestStatus::Open {
-                                    time: pr.created_at.expect("Missing created time"),
-                                })
-                        }
-                        (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
-                            time: pr.created_at.expect("Missing created time"),
-                        },
-                        (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
-                            time: pr.closed_at.expect("Missing closed time"),
-                        },
-                        (Some(IssueState::Closed), Some(_), _) => PullRequestStatus::Merged {
-                            merge_sha: pr
-                                .merge_commit_sha
-                                .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
-                                .unwrap_or_else(|| {
-                                    //panic!("Missing merge commit SHA {:#?} ", debug_pr)
-                                    Some("NONE".to_string())
-                                })
-                                .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
-                            time: pr.merged_at.expect("Missing merge time"),
-                        },
-                        (s, merged_at, labels) => {
-                            panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
-                        }
-                    },
-                };
-                parsed_prs.push(parsed);
-            }
-        }
-        bar.finish();
-        multi.remove(&bar);
-
-        Ok(parsed_prs)
+        Ok((parsed_prs, parsed_users))
     }
+}
+
+pub enum SyncMode {
+    /// Synchronize from the date
+    Since(DateTime<Utc>),
+    /// Synchronize last N pages
+    Last(u32),
 }

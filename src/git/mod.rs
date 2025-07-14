@@ -2,13 +2,15 @@ use std::collections::HashSet;
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
-use crate::git::github::GitHubApi;
+use crate::git::github::{GitHubApi, SyncMode};
 use crate::MULTI_PROGRESS_BAR;
 use git2::Oid;
 use octocrab::params::State;
 use secrecy::SecretString;
 use std::path::Path;
 use chrono::{DateTime, Utc};
+use indicatif::ProgressBar;
+use crate::misc::{with_progress_bar, with_progress_bar_async};
 
 pub mod git;
 pub mod github;
@@ -79,62 +81,58 @@ impl Analyze {
 
         // pr section
         // TODO hardcoded number of pages
-        let prs = self.github.get_pull_requests(State::All, 101).await?;
+        let (prs, contributors) = self.github.get_pull_requests(State::All, SyncMode::Last(101)).await?;
         Self::log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
         timestamp_start = Utc::now();
 
+        // insert non existing contributors
+        log::info!("Inserting contributors to database ({} found)", contributors.len());
+        self.database.upsert_contributors(&contributors).await?;
 
-        // proggress bar
-        let multi = MULTI_PROGRESS_BAR.clone();
-        let bar = multi.add(indicatif::ProgressBar::new(prs.len() as u64));
-        bar.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")?
-                .progress_chars("##-"),
-        );
 
-        // process prs
-        for pr in prs.iter() {
-            bar.inc(1);
-            bar.set_message(format!("Processing PR #{}", pr.pr_number));
-            log::debug!("{}", "_".repeat(69));
-            log::debug!("{:#?}", pr);
-            if let Err(res) = self.database.insert_pr_event(pr).await {
-                log::error!("Error when inserting pr event to database: {:?}", res);
-            }
-
-            let sha = match &pr.state {
-                PullRequestStatus::Merged { merge_sha, time: _ } => merge_sha,
-                _ => continue
-            };
-
-            //obtain modified files
-            let files = match self.repo.modified_files(Oid::from_str(sha.as_str()).unwrap_or(Oid::zero())) {
-                Ok(Some(files)) => files,
-                Ok(None) => {
-                    log::warn!("No modified files found for commit {}", sha);
-                    continue;
+        with_progress_bar_async(prs.len(), "Processing".parse()?, async |bar: &ProgressBar| {
+            for pr in prs.iter() {
+                bar.inc(1);
+                bar.set_message(format!("Processing PR #{}", pr.pr_number));
+                log::debug!("{}", "_".repeat(69));
+                log::debug!("{:#?}", pr);
+                if let Err(res) = self.database.insert_pr_event(pr).await {
+                    log::error!("Error when inserting pr event to database: {:?}", res);
                 }
-                Err(e) => {
-                    log::error!("Error while getting modified files for commit {}: {:#?}", sha, e);
-                    continue;
-                }
-            };
 
-            for file in files {
-                let activity = FileActivity {
-                    pr: pr.pr_number,
-                    file_path: file,
-                    user_id: pr.author_id,
-                    timestamp: pr.get_timestamp(),
+                let sha = match &pr.state {
+                    PullRequestStatus::Merged { merge_sha, time: _ } => merge_sha,
+                    _ => continue
                 };
-                if let Err(res) = self.database.insert_file_activity(&activity).await {
-                    log::error!("Error: {:?}", res);
+
+                //obtain modified files
+                let files = match self.repo.modified_files(Oid::from_str(sha.as_str()).unwrap_or(Oid::zero())) {
+                    Ok(Some(files)) => files,
+                    Ok(None) => {
+                        log::warn!("No modified files found for commit {}", sha);
+                        continue;
+                    }
+                    Err(e) => {
+                        log::error!("Error while getting modified files for commit {}: {:#?}", sha, e);
+                        continue;
+                    }
+                };
+
+                for file in files {
+                    let activity = FileActivity {
+                        pr: pr.pr_number,
+                        file_path: file,
+                        user_id: pr.author_id,
+                        timestamp: pr.get_timestamp(),
+                    };
+                    if let Err(res) = self.database.insert_file_activity(&activity).await {
+                        log::error!("Error: {:?}", res);
+                    }
                 }
             }
-        }
-        bar.finish_with_message("Finished processing PRs");
-        multi.remove(&bar);
+            Ok(())
+        }).await?;
+
         Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
         Ok(())

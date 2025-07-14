@@ -25,7 +25,6 @@ where user_login = 4539057
 order by timestamp desc
 limit 10;
 
-
 -- pro daného uživatele v časovém období kolik souborů změnil v kterých PR
 select pr, count(file_path) as count
 from file_activity
