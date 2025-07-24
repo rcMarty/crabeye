@@ -4,6 +4,7 @@ where state = 'merged'
   and timestamp > '2023-01-01';
 
 -- 2) Jaký byl stav konkrétního PR v daný timestamp?
+-- spravit že ta změna nemusí být v tom between může být před
 SELECT distinct state
 FROM pr_state_history
 WHERE pr = 138694
@@ -18,6 +19,8 @@ WHERE timestamp BETWEEN '2025-03-21' AND '2025-03-22'
 
 -- 3) Pro daného uživatele/tým (z https://github.com/rust-lang/team), jakých je top N souborů, které byly buď upraveny nebo reviewovány za posledních N časových jednotek?
 -- TODO netuším jk získat zda byl soubor upraven nebo reviewován. odkud to zjistím?
+-- řidat sloupeček reviewreea
+
 select pr, file_path, timestamp
 from file_activity
 where user_login = 4539057

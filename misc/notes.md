@@ -32,3 +32,8 @@ POSTGRE:
 [2025-05-20T15:58:58.658Z INFO  ranal::git] Overall getting resources:  took: 12 minutes 10 seconds
 
 
+# poznámky
+
+
+
+
