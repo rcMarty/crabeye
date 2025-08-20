@@ -10,7 +10,7 @@ use secrecy::SecretString;
 use std::path::Path;
 use chrono::{DateTime, Utc};
 use indicatif::ProgressBar;
-use crate::misc::{with_progress_bar, with_progress_bar_async};
+use crate::misc::with_progress_bar_async;
 
 pub mod git;
 pub mod github;

@@ -4,8 +4,9 @@ pub mod model;
 // src/db/mod.rs
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
 use anyhow::Result;
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::{PgPool, Pool, Postgres};
+use sqlx::migrate::MigrateDatabase;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -16,9 +17,9 @@ pub struct Database {
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self> {
         // i guess this is useless since sqlx is checking database in compiletime already
-        // if !Sqlite::database_exists(database_url).await? {
-        //     Sqlite::create_database(database_url).await?;
-        // }
+        if !Postgres::database_exists(database_url).await? {
+            Postgres::create_database(database_url).await?;
+        }
         let pool = PgPool::connect(database_url).await?;
         sqlx::migrate!().run(&pool).await?;
 
@@ -71,8 +72,8 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[
     }
 
     /// Cleans the old users from table and insert new users
-    pub async fn upsert_contributors(&self, team_members: &[model::team_member::Contributor]) -> Result<()> {
-        for user in team_members.iter() {
+    pub async fn upsert_contributors(&self, contributors: &[model::team_member::Contributor]) -> Result<()> {
+        for user in contributors.iter() {
             let gh_id = user.github_id as i64;
             let kind = Self::team_kind_to_str(rust_team_data::v1::TeamKind::Unknown); // Contributors are not part of any team, so we use Unknown kind
             sqlx::query!(
@@ -248,16 +249,17 @@ LIMIT $4;
     }
 
     /**
-    TEMP Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N časových jednotkách upravovali nebo reviewovali?
+    TEMP Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N dní od určitého datumu upravovali nebo reviewovali?
     TODO mby add on which pr it was
     */
     pub async fn get_users_who_modified_file(
         &self,
         file_path: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
+        from_timestamp: Option<NaiveDateTime>,
+        last_n_days: Option<i64>,
     ) -> Result<Vec<i64>> {
-        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+        let timestamp_end = from_timestamp.unwrap_or(Utc::now().naive_utc());
+        let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         let file_path = format!("{}%", file_path);
 
         let record = sqlx::query!(

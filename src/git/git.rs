@@ -69,6 +69,7 @@ impl Repo {
             .repository
             .find_remote("origin")
             .context("failed to find remote 'origin'")?;
+        log::info!("fetching remote 'origin'");
         remote.fetch(&["master"], None, None)?;
         log::debug!("Repository updated");
         Ok(())
