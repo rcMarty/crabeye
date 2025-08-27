@@ -33,8 +33,7 @@ struct ReviewersListResponse {
 #[debug_handler]
 async fn made_review(
     State(app): State<AppState>,
-    // Query(params): Query<ReviewParams>, todo fix query params
-    Json(params): Json<ReviewParams>,
+    Query(params): Query<ReviewParams>,
 ) -> impl IntoApiResponse {
     log::debug!("{:?}", params.clone());
     let res = app.db.get_users_who_modified_file(params.file, params.from_date, params.last_n_days).await;

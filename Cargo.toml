@@ -7,7 +7,7 @@ edition = "2021"
 octocrab = "0.44.0"
 git2 = "0.20.0"
 axum = { version = "0.8.4", features = ["macros"] }
-aide = { version = "0.15.1", features = ["axum", "redoc", "swagger", "scalar", "axum-json", "macros"] } # automatic api documentation generation
+aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation
 #trustfall = "0.8.0"  #query engine for all kind of data sources
 rust_team_data = { git = "https://github.com/rust-lang/team" }
 
