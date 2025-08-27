@@ -6,6 +6,7 @@ pub mod git;
 pub mod monitoring;
 mod misc;
 
+use std::sync::Arc;
 use crate::commands::{Cli, Commands};
 use crate::config::Config;
 use crate::db::model::pr_event::PullRequestStatus;
@@ -16,11 +17,12 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
-use axum::response::IntoResponse;
-use axum::routing::{get, post};
 use axum::extract::{Query, State};
-use axum::{Json, Router};
+use axum::{Extension, Json};
 use reqwest::StatusCode;
+use aide::{axum::{ApiRouter, IntoApiResponse, routing::{get, post}}};
+use schemars::JsonSchema;
+use crate::api::app_state::AppState;
 
 lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
 
@@ -38,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
     log::debug!("Config is: {:#?}", config);
 
     let db = Database::new(config.db_url.as_str()).await?;
+    let state = AppState { db: db.clone() };
 
     let cli = Cli::parse();
     match cli.command {
@@ -50,53 +53,30 @@ async fn main() -> anyhow::Result<()> {
             );
             analyze.analyze().await?;
             log::info!("Analyze is completed");
+
+            log::info!("Press enter to exit...");
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read line");
+            log::info!("Exiting...");
         }
         Commands::Serve => {
-            log::info!("serving API");
-            let router = Router::new()
-                // root hello world
-                .route("/", get(made_review))
-                .with_state(db);
+            let mut api = aide::openapi::OpenApi::default();
+            let router = ApiRouter::new()
+                .nest_api_service("/api", api::review::review_routes(state.clone()))
+                .nest_api_service("/docs", api::docs::docs_routes(state.clone()))
+                .finish_api_with(&mut api, api::docs::api_docs)
+                .layer(Extension(Arc::new(api)))
+                .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:7878").await?;
+            log::info!("serving API on listener: {listener:?}");
             axum::serve(listener, router).await?;
         }
     }
 
-    // wait for user input
-    log::info!("Press enter to exit...");
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-    log::info!("Exiting...");
-
     Ok(())
 }
 
-async fn made_review(State(db): State<Database>, Query(params): Query<ReviewParams>) -> Result<Json<Vec<i64>>, (StatusCode, String)> {
-    log::debug!("{:?}", params.clone());
-    let res = db.get_users_who_modified_file(params.file, params.from_date, params.last_n_days).await;
 
-    match res {
-        Ok(values) => {
-            Ok(Json(values))
-        }
-        Err(err) => {
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{:?}", err)))
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ReviewParams {
-    file: String,
-    last_n_days: Option<i64>,
-    from_date: Option<chrono::NaiveDateTime>,
-}
-
-#[derive(serde::Deserialize)]
-pub struct Pagination {
-    skip: Option<i32>,
-    page: Option<i32>,
-}
