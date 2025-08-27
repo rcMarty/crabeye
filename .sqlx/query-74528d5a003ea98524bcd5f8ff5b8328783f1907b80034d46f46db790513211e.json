@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nINSERT INTO file_activity(pr, file_path, user_login, timestamp)\nVALUES ($1,$2,$3,$4)\n               ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "74528d5a003ea98524bcd5f8ff5b8328783f1907b80034d46f46db790513211e"
+}
