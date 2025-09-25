@@ -2,11 +2,14 @@
 pub mod model;
 
 // src/db/mod.rs
+use crate::api::Pagination;
+use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
+use crate::db::model::team_member::Contributor;
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, Utc};
-use sqlx::{PgPool, Pool, Postgres};
 use sqlx::migrate::MigrateDatabase;
+use sqlx::{PgPool, Pool, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -37,42 +40,59 @@ impl Database {
     }
 
     /// Cleans the old users from table and insert new users
-    pub async fn insert_team_members(&self, team_members: &[model::team_member::TeamMember]) -> Result<()> {
+    pub async fn insert_team_members(
+        &self,
+        team_members: &[model::team_member::TeamMember],
+    ) -> Result<()> {
         sqlx::query!(
             r#"-- noinspection SqlWithoutWhereForFile
 DELETE FROM team_members
 "#
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
 
-
-        let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
-        let github_names: Vec<&str> = team_members.iter().map(|user| user.github_name.as_str()).collect();
+        let github_ids: Vec<i64> = team_members
+            .iter()
+            .map(|user| user.github_id as i64)
+            .collect();
+        let github_names: Vec<&str> = team_members
+            .iter()
+            .map(|user| user.github_name.as_str())
+            .collect();
         let names: Vec<&str> = team_members.iter().map(|user| user.name.as_str()).collect();
         let teams: Vec<&str> = team_members.iter().map(|user| user.team.as_str()).collect();
-        let subteams: Vec<Option<&str>> = team_members.iter().map(|user| user.subteam_of.as_deref()).collect();
-        let kinds: Vec<&str> = team_members.iter().map(|user| Self::team_kind_to_str(user.kind)).collect();
+        let subteams: Vec<Option<&str>> = team_members
+            .iter()
+            .map(|user| user.subteam_of.as_deref())
+            .collect();
+        let kinds: Vec<&str> = team_members
+            .iter()
+            .map(|user| Self::team_kind_to_str(user.kind))
+            .collect();
 
         sqlx::query!(
-    r#"
+            r#"
 INSERT INTO team_members (github_id, github_name, name, team, subteam_of, kind)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::TEXT[])
 "#,
-    &github_ids[..],
-    &github_names[..] as &[&str],
-    &names[..] as &[&str],
-    &teams[..] as &[&str],
-    &subteams[..] as &[Option<&str>],
-    &kinds[..] as &[&str]
-)
-            .execute(&self.pool)
-            .await?;
+            &github_ids[..],
+            &github_names[..] as &[&str],
+            &names[..] as &[&str],
+            &teams[..] as &[&str],
+            &subteams[..] as &[Option<&str>],
+            &kinds[..] as &[&str]
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// Cleans the old users from table and insert new users
-    pub async fn upsert_contributors(&self, contributors: &[model::team_member::Contributor]) -> Result<()> {
+    pub async fn upsert_contributors(
+        &self,
+        contributors: &[model::team_member::Contributor],
+    ) -> Result<()> {
         for user in contributors.iter() {
             let gh_id = user.github_id as i64;
             let kind = Self::team_kind_to_str(rust_team_data::v1::TeamKind::Unknown); // Contributors are not part of any team, so we use Unknown kind
@@ -89,12 +109,11 @@ where not exists (select 1 from team_members where github_id = $1);
                 "",
                 kind
             )
-                .execute(&self.pool)
-                .await?;
+            .execute(&self.pool)
+            .await?;
         }
         Ok(())
     }
-
 
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
         let timestamp = event.get_timestamp().naive_utc();
@@ -117,8 +136,8 @@ current_state = excluded.current_state,
             merge_sha,
             author_id
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
 
         sqlx::query!(
             r#"
@@ -130,8 +149,8 @@ VALUES ($1,$2,$3,$4)
             timestamp,
             merge_sha
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -147,8 +166,8 @@ VALUES ($1,$2,$3,$4)
             user_id,
             activity.timestamp.naive_utc()
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }
@@ -177,8 +196,8 @@ ORDER BY timestamp DESC
             timestamp_start,
             timestamp_end
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
 
         let ret = record.iter().map(|r| r.state.clone()).collect::<Vec<_>>();
         log::debug!("return value from get pr state at: \n{:?}", ret);
@@ -208,8 +227,8 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
             timestamp_end,
             state.as_str()
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.count.unwrap())
     }
@@ -240,8 +259,8 @@ LIMIT $4;
             timestamp_end,
             n
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
         Ok(record
             .iter()
             .map(|r| (r.file_path.clone(), r.pr))
@@ -257,28 +276,63 @@ LIMIT $4;
         file_path: String,
         from_timestamp: Option<NaiveDateTime>,
         last_n_days: Option<i64>,
-    ) -> Result<Vec<i64>> {
+        pagination: Pagination,
+    ) -> Result<PaginatedResponse<Contributor>> {
         let timestamp_end = from_timestamp.unwrap_or(Utc::now().naive_utc());
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         let file_path = format!("{}%", file_path);
 
-        let record = sqlx::query!(
+        let (limit, offset) = pagination.limit_offset();
+
+        let count = sqlx::query!(
             r#"
-select distinct user_login
-from file_activity
-where file_path like $1
-  and timestamp between $2 and $3
+select count(distinct github_id) as count
+from team_members
+where github_id in
+(
+        select distinct user_login
+        from file_activity
+        where file_path like $1
+          and timestamp between $2 and $3
+        );
 "#,
             file_path,
             timestamp_start,
             timestamp_end
         )
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(record
-            .iter()
-            .map(|r| r.user_login.clone())
-            .collect::<Vec<_>>())
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
+
+        let entries = sqlx::query_as::<_, Contributor>(
+            r#"
+select distinct github_id, github_name
+from team_members
+where github_id in
+      (
+        select distinct user_login
+        from file_activity
+        where file_path like $1
+          and timestamp between $2 and $3
+        offset $4 limit $5
+        );
+"#,
+        )
+        .bind(file_path)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(PaginatedResponse::new(
+            count,
+            entries.len(),
+            pagination.page as usize,
+            entries,
+        ))
     }
 
     /**

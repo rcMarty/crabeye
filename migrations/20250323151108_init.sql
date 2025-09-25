@@ -20,7 +20,7 @@ CREATE TABLE team_members
 (
     id          SERIAL PRIMARY KEY,
     github_id   BIGINT NOT NULL,
-    github_name TEXT,
+    github_name TEXT   NOT NULL,
     name        TEXT,
     team        TEXT,
     subteam_of  TEXT,
@@ -54,7 +54,7 @@ CREATE TABLE file_activity
     id            SERIAL PRIMARY KEY,
     pr            BIGINT    NOT NULL, --REFERENCES pull_requests (pr),
     file_path     TEXT      NOT NULL,
-    user_login    BIGINT      NOT NULL,
+    user_login    BIGINT    NOT NULL,
     activity_type TEXT,
     timestamp     TIMESTAMP NOT NULL
 );

@@ -67,3 +67,20 @@ where file_path like 'src/libsyntax/parse/%';
 select *
 from pr_state_history
 where pr = 129342;
+
+
+
+select distinct github_id, github_name
+from team_members
+where github_id in (select distinct user_login
+             from file_activity
+             where file_path like 'src/%'
+               and timestamp between '2024-03-21' and '2025-03-22'
+             order by user_login
+             limit 100 offset 0
+             );
+
+select distinct user_login
+from file_activity
+where file_path like $1
+  and timestamp between $2 and $3

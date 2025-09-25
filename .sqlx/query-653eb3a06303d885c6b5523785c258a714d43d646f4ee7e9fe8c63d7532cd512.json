@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nSELECT count(*) as count FROM pr_state_history\nWHERE timestamp BETWEEN $1 AND $2 AND state = $3;\n               ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "653eb3a06303d885c6b5523785c258a714d43d646f4ee7e9fe8c63d7532cd512"
+}
