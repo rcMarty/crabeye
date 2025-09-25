@@ -3,26 +3,29 @@ pub mod commands;
 pub mod config;
 pub mod db;
 pub mod git;
-pub mod monitoring;
 mod misc;
+pub mod monitoring;
 
-use std::sync::Arc;
+use crate::api::app_state::AppState;
 use crate::commands::{Cli, Commands};
 use crate::config::Config;
 use crate::db::model::pr_event::PullRequestStatus;
 use crate::db::Database;
 use crate::git::Analyze;
+use aide::axum::{
+    routing::{get, post},
+    ApiRouter, IntoApiResponse,
+};
+use axum::extract::{Query, State};
+use axum::{Extension, Json};
 use chrono::{DateTime, NaiveTime};
 use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
-use axum::extract::{Query, State};
-use axum::{Extension, Json};
 use reqwest::StatusCode;
-use aide::{axum::{ApiRouter, IntoApiResponse, routing::{get, post}}};
 use schemars::JsonSchema;
-use crate::api::app_state::AppState;
+use std::sync::Arc;
 
 lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
 
@@ -44,14 +47,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Analyze => {
-            let analyze = Analyze::init(
-                config.repo_name,
-                config.repo_owner,
-                config.github_token,
-                db,
-            );
-            analyze.analyze().await?;
+        Commands::Analyze { sync } => {
+            let analyze =
+                Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
+            analyze.analyze(sync).await?;
             log::info!("Analyze is completed");
 
             log::info!("Press enter to exit...");
@@ -71,12 +70,10 @@ async fn main() -> anyhow::Result<()> {
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:7878").await?;
-            log::info!("serving API on listener: {listener:?}");
+            log::info!("serving API on URL: http://localhost:7878/docs");
             axum::serve(listener, router).await?;
         }
     }
 
     Ok(())
 }
-
-

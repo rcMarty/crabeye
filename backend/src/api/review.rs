@@ -43,7 +43,7 @@ async fn made_review(
             params.file,
             params.from_date,
             params.last_n_days,
-            params.pagination.unwrap_or_default(),
+            Pagination::new(params.page, params.per_page),
         )
         .await;
 

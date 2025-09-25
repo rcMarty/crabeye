@@ -8,7 +8,8 @@ pub struct ReviewParams {
     file: String,
     last_n_days: Option<i64>,
     from_date: Option<chrono::NaiveDateTime>,
-    pagination: Option<Pagination>,
+    page: Option<i64>,
+    per_page: Option<i64>,
 }
 
 /// Common pagination parameters
