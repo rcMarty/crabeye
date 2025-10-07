@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-octocrab = "0.44.0"
+octocrab = "0.47.0"
 git2 = "0.20.0"
 axum = { version = "0.8.4", features = ["macros"] }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation

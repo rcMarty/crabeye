@@ -280,7 +280,11 @@ LIMIT $4;
     ) -> Result<PaginatedResponse<Contributor>> {
         let timestamp_end = from_timestamp.unwrap_or(Utc::now().naive_utc());
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
-        log::debug!("timestamp_ start {} end {}", timestamp_start.to_string(), timestamp_end.to_string());
+        log::debug!(
+            "timestamp_ start {} end {}",
+            timestamp_start.to_string(),
+            timestamp_end.to_string()
+        );
         let file_path = format!("{}%", file_path);
 
         let (limit, offset) = pagination.limit_offset();
@@ -316,6 +320,7 @@ where github_id in
         from file_activity
         where file_path like $1
           and timestamp between $2 and $3
+        order by user_login
         offset $4 limit $5
         );
 "#,
@@ -328,11 +333,7 @@ where github_id in
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(PaginatedResponse::new(
-            count,
-            pagination,
-            entries,
-        ))
+        Ok(PaginatedResponse::new(count, pagination, entries))
     }
 
     /**

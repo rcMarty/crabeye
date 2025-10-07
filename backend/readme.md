@@ -11,37 +11,52 @@ Track everything about contributors, issues, and repository activity — all wri
 
 ## Database
 
-## Usage
+### Setup via Docker
 
-First of all, you need to setup your postgres database.
+You can use [docker compose](../docker-compose.yml) to run a postgres database.
+That database will have ready all migrations that you can find under `migrations` folder.
+You can also run postgres database locally, but you need to create database manually.
 
-*in .idea there are all configs for database `ranal` on `localhost`*
+### Setup via local Postgres
 
-*if you dont have sqlx-cli installed, you can do it by
-running: ``cargo install sqlx-cli --features native-tls, sqlite``*
+Make sure you have a running Postgres instance.
+Create a database named `ranal` (or any name you prefer) and set up the connection string in the
+`.env` file.
 
-And then you can run migrations:
+Now you can run migrations using `sqlx-cli`.
 
 ```bash
+cd backend
 sqlx migrate run
 ```
 
-also you must have
+*if you dont have sqlx-cli installed, you can do it by
+running: ``cargo install sqlx-cli --features native-tls``*
 
-When you want to get data for analyzing (so far only obtaining data to database), you need to add subcommand `analyze`
-to the command.
+## Configuration
+
+Create a `.env` file in the `backend` directory from the provided `.env.example` file and fill in
+the required environment variables.
+
+## Usage
+
+This command will fill the database with last 500 pull requests as demonstration.
 
 ```bash
-cargo run --release -- analyze
+cargo run -- analyze --sync 5
 ```
 
-Otherwise, if you want to only try some analytics queries, you can find some examples under subcommand `request`.
+If you have all the data you want you can run the server:
 
 ```bash
-cargo run --release -- request help
+cargo run -- serve
 ```
 
-Link to database schema [here](https://dbdiagram.io/d/6791134c37f5d6cbeb969453)
+Of course, you can always run command or subcommand with `--help` to see all available options.
+
+Then you can access the API docs at `http://localhost:7878/docs`.
+
+[//]: # (Link to database schema [here]&#40;https://dbdiagram.io/d/6791134c37f5d6cbeb969453&#41; TODO add link when ready)
 
 ## TODO
 
