@@ -11,32 +11,20 @@ export const useSidebarStore = defineStore('sidebar', () => {
   // Menu structure
   const menuItems = ref([
     {
-      id: 'main',
+      id: 'graphs',
       type: 'header',
-      title: 'Main Navigation'
+      title: 'Graphs'
     },
     {
-      id: 'dashboard',
-      type: 'link',
-      title: 'Analytics Dashboard',
-      icon: 'pe-7s-rocket',
-      route: '/'
-    },
-    {
-      id: 'user-pages',
-      type: 'header',
-      title: 'User Pages'
-    },
-    {
-      id: 'pages',
+      id: 'pull-requests',
       type: 'submenu',
-      title: 'Pages',
-      icon: 'pe-7s-user',
+      title: 'Pull Requests',
+      icon: 'pe-7s-graph1',
       children: [
         {
-          id: 'login',
-          title: 'Login',
-          route: '/pages/login-boxed'
+          id: 'files-changed',
+          title: 'Files Changed',
+          route: '/filters'
         },
         {
           id: 'register',
@@ -49,156 +37,6 @@ export const useSidebarStore = defineStore('sidebar', () => {
           route: '/pages/forgot-password-boxed'
         }
       ]
-    },
-    {
-      id: 'ui-elements',
-      type: 'header',
-      title: 'UI Elements'
-    },
-    {
-      id: 'elements',
-      type: 'submenu',
-      title: 'Elements',
-      icon: 'pe-7s-diamond',
-      children: [
-        {
-          id: 'buttons',
-          title: 'Buttons',
-          route: '/elements/buttons-standard'
-        },
-        {
-          id: 'dropdowns',
-          title: 'Dropdowns',
-          route: '/elements/dropdowns'
-        },
-        {
-          id: 'icons',
-          title: 'Icons',
-          route: '/elements/icons'
-        },
-        {
-          id: 'badges',
-          title: 'Badges',
-          route: '/elements/badges-labels'
-        },
-        {
-          id: 'cards',
-          title: 'Cards',
-          route: '/elements/cards'
-        },
-        {
-          id: 'list-groups',
-          title: 'List Groups',
-          route: '/elements/list-group'
-        },
-        {
-          id: 'timeline',
-          title: 'Timeline',
-          route: '/elements/timelines'
-        },
-        {
-          id: 'utilities',
-          title: 'Utilities',
-          route: '/elements/utilities'
-        }
-      ]
-    },
-    {
-      id: 'components',
-      type: 'submenu',
-      title: 'Components',
-      icon: 'pe-7s-plugin',
-      children: [
-        {
-          id: 'tabs',
-          title: 'Tabs',
-          route: '/components/tabs'
-        },
-        {
-          id: 'accordions',
-          title: 'Accordions',
-          route: '/components/accordions'
-        },
-        {
-          id: 'modals',
-          title: 'Modals',
-          route: '/components/modals'
-        },
-        {
-          id: 'progress-bar',
-          title: 'Progress Bar',
-          route: '/components/progress-bar'
-        },
-        {
-          id: 'tooltips-popovers',
-          title: 'Tooltips & Popovers',
-          route: '/components/tooltips-popovers'
-        },
-        {
-          id: 'carousel',
-          title: 'Carousel',
-          route: '/components/carousel'
-        },
-        {
-          id: 'pagination',
-          title: 'Pagination',
-          route: '/components/pagination'
-        },
-        {
-          id: 'maps',
-          title: 'Maps',
-          route: '/components/maps'
-        }
-      ]
-    },
-    {
-      id: 'tables-widgets',
-      type: 'header',
-      title: 'Tables & Widgets'
-    },
-    {
-      id: 'tables',
-      type: 'link',
-      title: 'Regular Tables',
-      icon: 'pe-7s-display1',
-      route: '/tables/regular-tables'
-    },
-    {
-      id: 'chart-boxes',
-      type: 'link',
-      title: 'Chart Boxes',
-      icon: 'pe-7s-graph1',
-      route: '/widgets/chart-boxes-3'
-    },
-    {
-      id: 'forms-charts',
-      type: 'header',
-      title: 'Forms & Charts'
-    },
-    {
-      id: 'forms',
-      type: 'submenu',
-      title: 'Forms',
-      icon: 'pe-7s-note',
-      children: [
-        {
-          id: 'form-controls',
-          title: 'Form Controls',
-          route: '/forms/controls'
-        },
-        {
-          id: 'form-layouts',
-          title: 'Form Layouts',
-          route: '/forms/layouts'
-        }
-      ]
-    },
-    {
-      id: 'charts',
-      type: 'link',
-      title: 'Chart.js',
-      icon: 'pe-7s-graph',
-      route: '/charts/chartjs'
     }
   ])
 

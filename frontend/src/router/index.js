@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 export default createRouter({
   history: createWebHistory(import.meta.env.PROD ? '/architectui-vue-free/' : '/'),
-  scrollBehavior() {
+  scrollBehavior () {
     return { top: 0, behavior: 'smooth' }
   },
   routes: [
@@ -160,6 +160,12 @@ export default createRouter({
       path: '/charts/chartjs',
       name: 'chartjs',
       component: () => import('../DemoPages/Charts/Chartjs.vue')
+    },
+
+    {
+      path: '/filters',
+      name: 'FilterDemo',
+      component: () => import('../pages/FIlterDemo.vue')
     }
   ]
 })
