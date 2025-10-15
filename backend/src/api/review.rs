@@ -20,7 +20,7 @@ use axum::{
 pub fn review_routes(state: AppState) -> ApiRouter {
     ApiRouter::new()
         .api_route(
-            "/",
+            "/reviewers",
             get_with(made_review, |op| {
                 op.description("Get users who made reviews on a specific file within a date range")
                     .tag("Review")

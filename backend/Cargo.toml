@@ -8,6 +8,8 @@ octocrab = "0.47.0"
 git2 = "0.20.0"
 axum = { version = "0.8.4", features = ["macros"] }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation
+tower-http = { version = "0.6.6", features = ["cors"] }
+
 #trustfall = "0.8.0"  #query engine for all kind of data sources
 rust_team_data = { git = "https://github.com/rust-lang/team" }
 
