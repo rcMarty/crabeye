@@ -23,7 +23,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/",
             get_with(
                 Scalar::new("/docs/private/api.json")
-                    .with_title("Aide Axum")
+                    .with_title("Ranal Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -33,7 +33,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/redoc",
             get_with(
                 Redoc::new("/docs/private/api.json")
-                    .with_title("Aide Axum")
+                    .with_title("Ranal Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -43,7 +43,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/swagger",
             get_with(
                 Swagger::new("/docs/private/api.json")
-                    .with_title("Aide Axum")
+                    .with_title("Ranal Swagger API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),

@@ -24,6 +24,11 @@ export const useSidebarStore = defineStore('sidebar', () => {
         {
           id: 'files-changed',
           title: 'Files Changed',
+          route: '/reviewers'
+        },
+        {
+          id: 'filter*demo',
+          title: 'Filters',
           route: '/filters'
         },
         {

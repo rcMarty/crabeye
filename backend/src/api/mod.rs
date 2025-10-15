@@ -3,12 +3,18 @@ pub mod docs;
 pub mod review;
 pub mod webhooks;
 
+/// Parameters for review-related endpoints
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct ReviewParams {
+    /// File path to filter reviews for, example = "src/lib.rs"
     file: String,
+    ///Number of days to look back, default 7, example = 30
     last_n_days: Option<i64>,
+    /// Start datetime (ISO 8601). default Now, example = "2025-01-01T09:00:00"
     from_date: Option<chrono::NaiveDateTime>,
+    /// Page number for pagination, default is 1
     page: Option<i64>,
+    /// Number of items per page, default is 100, max is 1000
     per_page: Option<i64>,
 }
 

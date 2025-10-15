@@ -166,6 +166,11 @@ export default createRouter({
       path: '/filters',
       name: 'FilterDemo',
       component: () => import('../pages/FIlterDemo.vue')
+    },
+    {
+      path: '/reviewers',
+      name: 'Reviewers',
+      component: () => import('../pages/ReviewersList.vue')
     }
   ]
 })
