@@ -62,10 +62,17 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve => {
             let mut api = aide::openapi::OpenApi::default();
+
+            let cors_layer = tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any);
+
             let router = ApiRouter::new()
                 .nest_api_service("/api", api::review::review_routes(state.clone()))
                 .nest_api_service("/docs", api::docs::docs_routes(state.clone()))
                 .finish_api_with(&mut api, api::docs::api_docs)
+                .layer(cors_layer)
                 .layer(Extension(Arc::new(api)))
                 .with_state(state);
 
