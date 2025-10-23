@@ -1,0 +1,152 @@
+<script lang="ts" setup>
+import { reactive, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+const emit = defineEmits<{
+  (e: 'filters-changed', payload: { q: string; status: string; tags: string[] }): void
+  (
+    e: 'filters-submitted',
+    payload: {
+      q?: string
+      status?: string
+      tags?: string[]
+      file?: string
+      from_date?: string | null
+      last_n_days?: number | null
+    }
+  ): void
+}>()
+
+const route = useRoute()
+const router = useRouter()
+
+// default filter shape
+const filters = reactive({
+  q: '',
+  status: '', // e.g. 'open' | 'closed' | ''
+  tags: [] as string[], // multi-select
+  file: '',
+  from_date: '' as string, // iso date string or empty
+  last_n_days: null as number | null
+})
+
+// sample tag options (adjust to your app)
+const tagOptions = ['frontend', 'backend', 'bug', 'enhancement']
+
+// initialize from URL query
+onMounted(() => {
+  const q = route.query.q
+  const status = route.query.status
+  const tags = route.query.tags
+  const file = route.query.file
+  const from_date = route.query.from_date
+  const last_n_days = route.query.last_n_days
+
+  if (typeof q === 'string') filters.q = q
+  if (typeof status === 'string') filters.status = status
+  if (typeof tags === 'string') filters.tags = tags ? tags.split(',') : []
+  if (Array.isArray(tags)) filters.tags = tags as string[]
+  if (typeof file === 'string') filters.file = file
+  if (typeof from_date === 'string') filters.from_date = from_date
+  if (typeof last_n_days === 'string') {
+    const n = parseInt(last_n_days, 10)
+    filters.last_n_days = isNaN(n) ? null : n
+  }
+})
+
+// debounce helper
+let timer: ReturnType<typeof setTimeout> | null = null
+const DEBOUNCE_MS = 300
+
+watch(
+  () => ({ q: filters.q, status: filters.status, tags: [...filters.tags] }),
+  () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => applyFilters(), DEBOUNCE_MS)
+  },
+  { deep: true }
+)
+
+function applyFilters() {
+  // build query object, omit empty values
+  const query: Record<string, string | string[]> = {}
+  if (filters.q) query.q = filters.q
+  if (filters.status) query.status = filters.status
+  if (filters.tags && filters.tags.length) query.tags = filters.tags
+  if (filters.file) query.file = filters.file
+  if (filters.from_date) query.from_date = filters.from_date
+  if (filters.last_n_days != null) query.last_n_days = String(filters.last_n_days)
+
+  router.replace({ query }).catch(() => {})
+  emit('filters-changed', {
+    q: filters.q,
+    status: filters.status,
+    tags: [...filters.tags]
+  })
+}
+
+function submitFilters() {
+  // emit richer payload for backend fetch
+  emit('filters-submitted', {
+    q: filters.q || undefined,
+    status: filters.status || undefined,
+    tags: filters.tags.length ? [...filters.tags] : undefined,
+    file: filters.file || undefined,
+    from_date: filters.from_date || null,
+    last_n_days: filters.last_n_days ?? null
+  })
+  // also update URL and live changed event
+  applyFilters()
+}
+
+function clearFilters() {
+  filters.status = ''
+  filters.tags = []
+  filters.file = ''
+  filters.from_date = ''
+  filters.last_n_days = null
+  applyFilters()
+}
+
+function toggleTag(tag: string) {
+  const idx = filters.tags.indexOf(tag)
+  if (idx === -1) filters.tags.push(tag)
+  else filters.tags.splice(idx, 1)
+}
+</script>
+
+<template>
+  <b-card class="filter-bar">
+    <b-card-body>
+      <b-row class="align-items-center g-2">
+        <b-col cols="2">
+          <b-form-input v-model="filters.file" aria-label="File" placeholder="File path..." />
+        </b-col>
+
+        <b-col class="d-flex gap-1" cols="4">
+          <b-form-input v-model="filters.from_date" aria-label="From date" type="date" />
+          <b-form-input v-model.number="filters.last_n_days" min="0" placeholder="60" type="number" />
+        </b-col>
+
+        <b-col class="mt-2" cols="12">
+          <b-button variant="primary" @click="submitFilters">Apply</b-button>
+          <b-button class="ms-2" variant="outline-secondary" @click="clearFilters">Clear</b-button>
+        </b-col>
+      </b-row>
+    </b-card-body>
+  </b-card>
+</template>
+
+<style scoped>
+.filter-bar {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tags {
+  display: flex;
+  gap: 0.25rem;
+}
+</style>

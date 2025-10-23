@@ -1,0 +1,62 @@
+// =====================================
+// BOOTSTRAP 5 WITH CUSTOM THEME
+// =====================================
+
+// 1. Include our custom Bootstrap 5 theme variables
+@import 'scss/bootstrap-custom';
+
+// 2. Import complete Bootstrap 5 SCSS (handles all dependencies)
+@import 'bootstrap/scss/bootstrap';
+
+// LAYOUT
+
+@import 'layout/layout';
+
+// UTILS
+
+@import 'utils/helpers';
+@import 'utils/backgrounds';
+@import 'utils/animate';
+@import 'utils/comps-animations';
+
+// ELEMENTS
+
+@import 'elements/buttons';
+@import 'elements/cards';
+@import 'elements/carousel';
+@import 'elements/dropdown';
+@import 'elements/badges';
+@import 'elements/accordions';
+@import 'elements/modals';
+@import 'elements/timeline';
+@import 'elements/popovers-tooltips';
+
+// DASHBOARD BOXES
+
+@import 'widgets/chart-boxes/chart-boxes';
+@import 'widgets/content-boxes/content-boxes';
+
+// PAGES
+@import 'pages/userpages';
+
+// COMPONENTS
+
+// Perfect Scrollbar
+
+// @import 'components/perfect-scrollbar/perfect-scrollbar'; // Using vue3-perfect-scrollbar package
+
+// Hamburger button
+
+@import 'components/hamburgers/hamburgers';
+
+// Icons
+
+@import 'components/icons/p7icons';
+
+// Responsive
+
+@import 'layout/responsive/responsive-base';
+
+// DEMO
+
+@import 'demo-ui/demo';

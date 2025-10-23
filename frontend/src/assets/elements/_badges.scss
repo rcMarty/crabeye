@@ -1,0 +1,19 @@
+// Badges (Bootstrap 5 compatible - no badge-variant mixin needed)
+
+@each $color, $value in $theme-colors {
+  .badge-#{$color} {
+    background-color: $value;
+    color: if($value == $light, $dark, $white);
+  }
+}
+
+.badge {
+  font-weight: bold;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  min-width: 19px;
+}
+
+.badge-light {
+  background: $white;
+}
