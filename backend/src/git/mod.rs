@@ -32,7 +32,7 @@ impl Analyze {
             Analyze::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
-        .unwrap();
+            .unwrap();
         let github = GitHubApi::new(owner, repository_name, token).unwrap();
         Self {
             repo,
@@ -135,22 +135,23 @@ impl Analyze {
                         }
                     };
 
-                    for file in files {
-                        let activity = FileActivity {
+                    let file_activities: Vec<FileActivity> = files
+                        .iter()
+                        .map(|file| FileActivity {
                             pr: pr.pr_number,
-                            file_path: file,
+                            file_path: file.clone(),
                             user_id: pr.author_id,
                             timestamp: pr.get_timestamp(),
-                        };
-                        if let Err(res) = self.database.insert_file_activity(&activity).await {
-                            log::error!("Error: {:?}", res);
-                        }
+                        })
+                        .collect();
+                    if let Err(res) = self.database.insert_file_activities(&file_activities).await {
+                        log::error!("Error: {:?}", res);
                     }
                 }
                 Ok(())
             },
         )
-        .await?;
+            .await?;
 
         Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
