@@ -43,14 +43,6 @@ impl Database {
         &self,
         team_members: &[model::team_member::TeamMember],
     ) -> Result<()> {
-        sqlx::query!(
-            r#"-- noinspection SqlWithoutWhereForFile
-DELETE FROM team_members
-"#
-        )
-            .execute(&self.pool)
-            .await?;
-
         let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
         let github_names: Vec<&str> = team_members.iter().map(|user| user.github_name.as_str()).collect();
         let names: Vec<&str> = team_members.iter().map(|user| user.name.as_str()).collect();
@@ -62,6 +54,13 @@ DELETE FROM team_members
             r#"
 INSERT INTO team_members (github_id, github_name, name, team, subteam_of, kind)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::TEXT[])
+            as t(github_id, github_name, name, team, subteam_of, kind)
+ON CONFLICT (github_id) DO UPDATE SET
+    github_name = excluded.github_name,
+    name = excluded.name,
+    team = excluded.team,
+    subteam_of = excluded.subteam_of,
+    kind = excluded.kind
 "#,
             &github_ids[..],
             &github_names[..] as &[&str],

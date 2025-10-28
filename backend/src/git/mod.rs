@@ -15,7 +15,7 @@ pub mod git;
 pub mod github;
 
 pub struct Analyze {
-    repo: Repo,
+    pub repo: Repo,
     github: GitHubApi,
     pub database: Database,
 }

@@ -17,7 +17,18 @@ impl StateMonitor {
         let mut interval = time::interval(self.interval);
         loop {
             interval.tick().await;
+            log::info!("_________________________________________________________________");
             log::info!("Starting state tracking iteration");
+
+            // fetch new data from git repository
+            if let Err(e) = analyze.repo.update() {
+                log::error!("Error updating git repository: {:?}", e);
+                continue;
+            } else {
+                log::info!("Git repository updated successfully");
+            }
+
+            // download form github
             let from: NaiveDateTime = match analyze.database.get_last_pr_event_timestamp().await {
                 Ok(Some(ts)) => ts,
                 Ok(None) => {
@@ -26,6 +37,7 @@ impl StateMonitor {
                 }
                 Err(e) => {
                     log::error!("Error retrieving last PR event timestamp: {:?}", e);
+                    log::warn!("Defaulting to 720 days ago");
                     (Utc::now() - chrono::Duration::days(720)).naive_utc()
                 }
             };
