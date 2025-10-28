@@ -5,8 +5,8 @@ and a frontend web application.
 
 ## Project Structure
 
-* **`backend/`**: The core API, implemented in **Rust** using the **Axum** framework and the **SQLx
-  ** database driver. [README here](backend/readme.md)
+* **`backend/`**: The core API, implemented in **Rust** using the **Axum** framework and the
+  **SQLx** database driver. [README here](backend/readme.md)
 * **`frontend/`**: The web client, built with **Vue**. [README here](frontend/readme.md)
 
 ---
