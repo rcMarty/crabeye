@@ -9,7 +9,6 @@ use git2::Oid;
 use indicatif::ProgressBar;
 use octocrab::params::State;
 use secrecy::SecretString;
-use std::collections::HashSet;
 use std::path::Path;
 
 pub mod git;
@@ -18,7 +17,7 @@ pub mod github;
 pub struct Analyze {
     repo: Repo,
     github: GitHubApi,
-    database: Database,
+    pub database: Database,
 }
 
 impl Analyze {
@@ -85,7 +84,6 @@ impl Analyze {
         timestamp_start = Utc::now();
 
         // pr section
-        // TODO hardcoded number of pages
         let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
         Self::log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
         timestamp_start = Utc::now();
