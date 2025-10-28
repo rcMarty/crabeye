@@ -39,7 +39,7 @@ impl Database {
     }
 
     /// Cleans the old users from table and insert new users
-    pub async fn insert_team_members(
+    pub async fn upsert_team_members(
         &self,
         team_members: &[model::team_member::TeamMember],
     ) -> Result<()> {
@@ -419,7 +419,7 @@ order by timestamp;
 }
 
 
-// part where is querying from database
+/// part where is querying from database misc functions
 impl Database {
     /// Get the timestamp of the last PR event in the database
     pub async fn get_last_pr_event_timestamp(&self) -> Result<Option<NaiveDateTime>> {
