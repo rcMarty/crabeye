@@ -1,6 +1,7 @@
 #[allow(unused)]
 pub mod model;
 
+use std::collections::HashMap;
 // src/db/mod.rs
 use crate::api::Pagination;
 use crate::db::model::paginated_response::PaginatedResponse;
@@ -43,12 +44,14 @@ impl Database {
         &self,
         team_members: &[model::team_member::TeamMember],
     ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query!(
             r#"-- noinspection SqlWithoutWhereForFile
 DELETE FROM team_members
 "#
         )
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
@@ -70,8 +73,9 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[
             &subteams[..] as &[Option<&str>],
             &kinds[..] as &[&str]
         )
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -141,12 +145,40 @@ VALUES ($1,$2,$3,$4)
         Ok(())
     }
 
+    fn latest_pr_events(events: &[PrEvent]) -> Vec<PrEvent> {
+        let mut map: HashMap<i64, PrEvent> = HashMap::with_capacity(events.len());
+
+        for event in events.iter() {
+            map
+                .entry(event.pr_number)
+                .and_modify(|existing| {
+                    if event.get_timestamp() > existing.get_timestamp() {
+                        *existing = event.clone();
+                    }
+                })
+                .or_insert_with(|| event.clone());
+        }
+
+        map.into_values().collect()
+    }
     pub async fn insert_pr_events(&self, events: &[PrEvent]) -> Result<()> {
-        let prs = events.iter().map(|event| event.pr_number).collect::<Vec<_>>();
-        let states = events.iter().map(|event| event.state.as_str()).collect::<Vec<_>>();
-        let timestamps = events.iter().map(|event| event.get_timestamp().naive_utc()).collect::<Vec<_>>();
-        let merge_shas = events.iter().map(|event| event.get_merge_sha()).collect::<Vec<_>>();
-        let author_ids = events.iter().map(|event| event.author_id.0 as i64).collect::<Vec<_>>();
+        let events = Self::latest_pr_events(events);
+
+        let mut prs = Vec::with_capacity(events.len());
+        let mut states = Vec::with_capacity(events.len());
+        let mut timestamps = Vec::with_capacity(events.len());
+        let mut merge_shas = Vec::with_capacity(events.len());
+        let mut author_ids = Vec::with_capacity(events.len());
+
+
+        for event in events.iter() {
+            let (pr, state_str, timestamp, merge_sha, author_id) = event.prepare_for_db();
+            prs.push(pr);
+            states.push(state_str);
+            timestamps.push(timestamp);
+            merge_shas.push(merge_sha);
+            author_ids.push(author_id);
+        }
 
         sqlx::query!(
             r#"
