@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
@@ -61,6 +61,17 @@ impl PrEvent {
             PullRequestStatus::Merged { merge_sha, .. } => Some(merge_sha.clone()),
             _ => None,
         }
+    }
+
+    /// Prepare the PrEvent for database insertion
+    /// Returns a tuple of (pr_number, state as string, timestamp, merge_sha, author_id)
+    pub fn prepare_for_db(&self) -> (i64, &str, NaiveDateTime, Option<String>, i64) {
+        let state_str = self.state.as_str();
+        let timestamp = self.get_timestamp().naive_utc();
+        let merge_sha = self.get_merge_sha();
+        let author_id = self.author_id.0 as i64;
+
+        (self.pr_number, state_str, timestamp, merge_sha, author_id)
     }
 }
 
