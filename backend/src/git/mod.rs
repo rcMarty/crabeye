@@ -76,7 +76,7 @@ impl Analyze {
 
         log::info!("number of found users: {}", users.len());
 
-        if let Err(res) = self.database.upsert_team_members(&users).await {
+        if let Err(res) = self.database.insert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
 
