@@ -64,11 +64,11 @@ impl Database {
                 .execute(&mut *tx)
                 .await?;
         }
+
         let teams: HashSet<Team> = team_members.iter().flat_map(|m| m.teams.iter().cloned()).collect();
         let team_names: Vec<String> = teams.iter().map(|team| team.team.clone()).collect();
         let subteams: Vec<_> = teams.iter().map(|team| team.subteam_of.clone()).collect();
         let kinds: Vec<_> = teams.iter().map(|team| Self::team_kind_to_str(team.kind)).collect();
-
         sqlx::query!(
             r#"
 INSERT INTO teams (team, subteam_of, kind)
@@ -89,7 +89,7 @@ kind = EXCLUDED.kind
             let teams = member.teams.iter().map(|t| t.team.clone()).collect::<Vec<_>>();
 
             sqlx::query!(
-            r#"
+                r#"
 INSERT INTO contributors_teams (github_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
 ON CONFLICT (github_id, team) DO UPDATE
@@ -101,7 +101,6 @@ SET github_id = EXCLUDED.github_id, team = EXCLUDED.team
                 .execute(&mut *tx)
                 .await?;
         }
-
 
         tx.commit().await?;
         Ok(())
@@ -172,8 +171,7 @@ VALUES ($1,$2,$3,$4)
         let mut map: HashMap<i64, PrEvent> = HashMap::with_capacity(events.len());
 
         for event in events.iter() {
-            map
-                .entry(event.pr_number)
+            map.entry(event.pr_number)
                 .and_modify(|existing| {
                     if event.get_timestamp() > existing.get_timestamp() {
                         *existing = event.clone();
@@ -192,7 +190,6 @@ VALUES ($1,$2,$3,$4)
         let mut timestamps = Vec::with_capacity(events.len());
         let mut merge_shas = Vec::with_capacity(events.len());
         let mut author_ids = Vec::with_capacity(events.len());
-
 
         for event in events.iter() {
             let (pr, state_str, timestamp, merge_sha, author_id) = event.prepare_for_db();
@@ -467,13 +464,12 @@ order by timestamp;
             .map(|r| {
                 (
                     r.pr,
-                    chrono::DateTime::<Utc>::from_naive_utc_and_offset(r.timestamp, Utc),
+                    DateTime::<Utc>::from_naive_utc_and_offset(r.timestamp, Utc),
                 )
             })
             .collect::<Vec<_>>())
     }
 }
-
 
 /// part where is querying from database misc functions
 impl Database {

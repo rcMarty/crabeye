@@ -24,11 +24,13 @@ pub enum Commands {
 }
 
 pub fn parse_sync_mode(mode: &str) -> Result<crate::git::github::SyncMode, anyhow::Error> {
-    if let Ok(date) = parse_date(mode) {
-        let datetime = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-        Ok(crate::git::github::SyncMode::Since(datetime))
-    } else if let Ok(duration) = mode.parse::<u32>() {
+    if let Ok(duration) = mode.parse::<u32>() {
+        log::debug!("Sync mode: SyncMode::Last({})",duration);
         Ok(crate::git::github::SyncMode::Last(duration))
+    } else if let Ok(date) = parse_date(mode) {
+        let datetime = NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        log::debug!("Sync mode: SyncMode::Since({})",datetime);
+        Ok(crate::git::github::SyncMode::Since(datetime))
     } else {
         Err(anyhow::anyhow!(
             "Invalid mode: {}. Use either YYYY-MM-DD or a non-negative integer for days.",

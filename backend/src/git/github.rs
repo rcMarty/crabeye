@@ -166,12 +166,10 @@ impl GitHubApi {
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
-                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
-                            < since =>
-                            {
-                                log::info!("No more pull requests to process, stopping at page {page}");
-                                break 'pageLoop;
-                            }
+                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc() < since => {
+                            log::info!("No more pull requests to process, stopping at page {page}");
+                            break 'pageLoop;
+                        }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!("Found {} pull requests", response.items.len());
