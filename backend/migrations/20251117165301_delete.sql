@@ -1,4 +1,6 @@
-DROP TABLE IF EXISTS team_members;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS contributors_teams;
+DROP TABLE IF EXISTS contributors;
 DROP TABLE IF EXISTS file_activity;
 DROP TABLE IF EXISTS pr_state_history;
 DROP TABLE IF EXISTS pull_requests;

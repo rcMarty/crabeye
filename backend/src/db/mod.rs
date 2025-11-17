@@ -1,15 +1,16 @@
 #[allow(unused)]
 pub mod model;
 
-use std::collections::HashMap;
 // src/db/mod.rs
 use crate::api::Pagination;
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
+use crate::db::model::team_member::Team;
 use anyhow::Result;
-use chrono::{NaiveDateTime, DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres, QueryBuilder};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -39,42 +40,69 @@ impl Database {
         }
     }
 
-    /// Cleans the old users from table and insert new users
-    pub async fn insert_team_members(
+    /// Upserts team members and upserts teams and their relations
+    pub async fn upsert_team_members(
         &self,
         team_members: &[model::team_member::TeamMember],
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query!(
-            r#"-- noinspection SqlWithoutWhereForFile
-DELETE FROM team_members
-"#
-        )
-            .execute(&mut *tx)
-            .await?;
-
         let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
         let github_names: Vec<&str> = team_members.iter().map(|user| user.github_name.as_str()).collect();
         let names: Vec<&str> = team_members.iter().map(|user| user.name.as_str()).collect();
-        let teams: Vec<&str> = team_members.iter().map(|user| user.team.as_str()).collect();
-        let subteams: Vec<Option<&str>> = team_members.iter().map(|user| user.subteam_of.as_deref()).collect();
-        let kinds: Vec<&str> = team_members.iter().map(|user| Self::team_kind_to_str(user.kind)).collect();
 
         sqlx::query!(
             r#"
-INSERT INTO team_members (github_id, github_name, name, team, subteam_of, kind)
-SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::TEXT[])
+INSERT INTO contributors (github_id, github_name, name)
+SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[])
+ON CONFLICT (github_id) DO UPDATE SET
+github_name = EXCLUDED.github_name,
+name = EXCLUDED.name
 "#,
             &github_ids[..],
             &github_names[..] as &[&str],
-            &names[..] as &[&str],
-            &teams[..] as &[&str],
-            &subteams[..] as &[Option<&str>],
-            &kinds[..] as &[&str]
+            &names[..] as &[&str]
         )
             .execute(&mut *tx)
             .await?;
+
+        let teams: HashSet<Team> = team_members.iter().flat_map(|m| m.teams.iter().cloned()).collect();
+        let team_names: Vec<String> = teams.iter().map(|team| team.team.clone()).collect();
+        let subteams: Vec<_> = teams.iter().map(|team| team.subteam_of.clone()).collect();
+        let kinds: Vec<_> = teams.iter().map(|team| Self::team_kind_to_str(team.kind)).collect();
+
+        sqlx::query!(
+            r#"
+INSERT INTO teams (team, subteam_of, kind)
+SELECT * FROM UNNEST($1::TEXT[], $2::TEXT[], $3::TEXT[])
+ON CONFLICT (team) DO UPDATE SET
+subteam_of = EXCLUDED.subteam_of,
+kind = EXCLUDED.kind
+"#,
+            &team_names,
+            &subteams as &[Option<String>],
+            &kinds as &[&str]
+        )
+            .execute(&mut *tx)
+            .await?;
+
+        for member in team_members {
+            let member_id: Vec<i64> = vec![member.github_id as i64; member.teams.len()];
+            let teams = member.teams.iter().map(|t| t.team.clone()).collect::<Vec<_>>();
+
+            sqlx::query!(
+            r#"
+INSERT INTO contributors_teams (github_id,team)
+SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
+"#,
+                &member_id,
+                &teams,
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
+
+
         tx.commit().await?;
         Ok(())
     }
@@ -85,20 +113,15 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[
         contributors: &[model::team_member::Contributor],
     ) -> Result<()> {
         for user in contributors.iter() {
-            let gh_id = user.github_id as i64;
-            let kind = Self::team_kind_to_str(rust_team_data::v1::TeamKind::Unknown); // Contributors are not part of any team, so we use Unknown kind
             sqlx::query!(
                 r#"
-INSERT INTO team_members (github_id, github_name, name,team, subteam_of, kind)
-select $1,$2,$3,$4,$5,$6
+INSERT INTO contributors (github_id, github_name, name)
+select $1,$2,$3
 where not exists (select 1 from team_members where github_id = $1);
 "#,
-                gh_id,
+                user.github_id as i64,
                 user.github_name,
-                "",
-                "",
-                "",
-                kind
+                user.name
             )
                 .execute(&self.pool)
                 .await?;
@@ -113,13 +136,13 @@ where not exists (select 1 from team_members where github_id = $1);
 
         sqlx::query!(
             r#"
-INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, author_id)
+INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, contributor_id)
 VALUES ($1,$2,$3,$4,$5)
 ON CONFLICT(pr) DO UPDATE SET
 current_state = excluded.current_state,
     timestamp = excluded.timestamp,
     merge_sha = excluded.merge_sha,
-    author_id = excluded.author_id
+    contributor_id = excluded.contributor_id
 "#,
             event.pr_number,
             &event.state as &PullRequestStatus,
@@ -182,14 +205,14 @@ VALUES ($1,$2,$3,$4)
 
         sqlx::query!(
             r#"
-INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, author_id)
+INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, contributor_id)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TIMESTAMP[], $4::TEXT[], $5::BIGINT[])
-         as t(pr, current_state, timestamp, merge_sha, author_id)
+         as t(pr, current_state, timestamp, merge_sha, contributor_id)
 ON CONFLICT(pr) DO UPDATE SET
 current_state = excluded.current_state,
     timestamp = excluded.timestamp,
     merge_sha = excluded.merge_sha,
-    author_id = excluded.author_id
+    contributor_id = excluded.contributor_id
 "#,
             &prs,
             &states as &[&str],
@@ -221,7 +244,7 @@ ON CONFLICT (timestamp) DO NOTHING
         let user_id = activity.user_id.0 as i64;
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, user_login, timestamp)
+INSERT INTO file_activity(pr, file_path, contributor_gh_id, timestamp)
 VALUES ($1,$2,$3,$4)
                "#,
             activity.pr,
@@ -242,7 +265,7 @@ VALUES ($1,$2,$3,$4)
 
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, user_login, timestamp)
+INSERT INTO file_activity(pr, file_path, contributor_gh_id, timestamp)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::BIGINT[], $4::TIMESTAMP[])
 as t(pr, file_path, user_login, timestamp)
                "#,
@@ -334,7 +357,7 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
             r#"
 select pr, file_path
 from file_activity
-where user_login = $1
+where contributor_gh_id = $1
   and timestamp between $2 and $3
 order by timestamp DESC
 LIMIT $4;
@@ -380,7 +403,7 @@ select count(distinct github_id) as count
 from team_members
 where github_id in
 (
-        select distinct user_login
+        select distinct contributor_gh_id
         from file_activity
         where file_path like $1
           and timestamp between $2 and $3
@@ -401,11 +424,11 @@ select distinct github_id, github_name
 from team_members
 where github_id in
       (
-        select distinct user_login
+        select distinct contributor_gh_id
         from file_activity
         where file_path like $1
           and timestamp between $2 and $3
-        order by user_login
+        order by contributor_gh_id
         offset $4 limit $5
         );
 "#,

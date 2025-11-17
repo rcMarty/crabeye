@@ -11,6 +11,7 @@ use crate::commands::{Cli, Commands};
 use crate::config::Config;
 use crate::db::Database;
 use crate::git::Analyze;
+use crate::monitoring::state_tracker::StateMonitor;
 use aide::axum::{
     routing::{get, post},
     ApiRouter, IntoApiResponse,
@@ -60,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
 
             // spawn the task to get new data every minute
             let analyze = Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
-            let state_tracker = monitoring::state_tracker::StateMonitor::new(std::time::Duration::from_secs(60));
+            let state_tracker = StateMonitor::new(std::time::Duration::from_secs(60));
 
             // set up and run the API server
             let mut api = aide::openapi::OpenApi::default();

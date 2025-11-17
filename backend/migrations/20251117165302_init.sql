@@ -16,24 +16,34 @@
 --     'marker-team'
 --     );
 
-CREATE TABLE team_members
+CREATE TABLE teams
 (
-    id          SERIAL PRIMARY KEY,
-    github_id   BIGINT NOT NULL,
-    github_name TEXT   NOT NULL,
-    name        TEXT,
-    team        TEXT,
-    subteam_of  TEXT,
-    kind        TEXT
+    team       TEXT PRIMARY KEY,
+    subteam_of TEXT,
+    kind       TEXT
+);
+
+CREATE TABLE contributors_teams
+(
+    github_id BIGINT NOT NULL,
+    team      TEXT   NOT NULL,
+    PRIMARY KEY (github_id, team)
+);
+
+CREATE TABLE contributors
+(
+    github_id   BIGINT PRIMARY KEY,
+    github_name TEXT NOT NULL,
+    name        TEXT
 );
 
 CREATE TABLE pull_requests
 (
-    pr            BIGINT PRIMARY KEY,
-    author_id     BIGINT NOT NULL,
-    current_state TEXT   NOT NULL,
-    merge_sha     TEXT,
-    timestamp     TIMESTAMP
+    pr             BIGINT PRIMARY KEY,
+    contributor_id BIGINT NOT NULL,
+    current_state  TEXT   NOT NULL,
+    merge_sha      TEXT,
+    timestamp      TIMESTAMP
 );
 
 CREATE TABLE pr_state_history
@@ -51,10 +61,10 @@ CREATE TABLE pr_state_history
 
 CREATE TABLE file_activity
 (
-    id            SERIAL PRIMARY KEY,
-    pr            BIGINT    NOT NULL, --REFERENCES pull_requests (pr),
-    file_path     TEXT      NOT NULL,
-    user_login    BIGINT    NOT NULL,
-    activity_type TEXT,
-    timestamp     TIMESTAMP NOT NULL
+    id                SERIAL PRIMARY KEY,
+    pr                BIGINT    NOT NULL, -- REFERENCES pull_requests (pr),
+    file_path         TEXT      NOT NULL,
+    contributor_gh_id BIGINT    NOT NULL,
+    activity_type     TEXT,
+    timestamp         TIMESTAMP NOT NULL
 );

@@ -6,24 +6,39 @@ use sqlx::Database;
 use sqlx::Encode;
 use sqlx::Postgres;
 use sqlx::{FromRow, Row, Type};
+use std::hash::Hash;
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct TeamMember {
+    #[sqlx(try_from = "i64")]
     pub github_id: u64,
     pub github_name: String,
     pub name: String,
+    pub teams: Vec<Team>,
+}
+
+
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct Team {
     pub team: String,
     pub subteam_of: Option<String>,
     pub kind: rust_team_data::v1::TeamKind,
+}
+impl Eq for Team {}
+impl Hash for Team {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.team.hash(state);
+    }
 }
 
 #[derive(
     Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 pub struct Contributor {
-    pub github_name: String,
     #[sqlx(try_from = "i64")]
     pub github_id: u64,
+    pub github_name: String,
+    pub name: Option<String>,
 }
 
 impl From<octocrab::models::Author> for Contributor {
@@ -31,6 +46,7 @@ impl From<octocrab::models::Author> for Contributor {
         Contributor {
             github_id: author.id.0,
             github_name: author.login,
+            name: author.name,
         }
     }
 }
