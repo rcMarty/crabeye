@@ -1,8 +1,8 @@
-use std::time::Duration;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use tokio::time;
-use crate::git::Analyze;
 use crate::git::github::SyncMode;
+use crate::git::Analyze;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use std::time::Duration;
+use tokio::time;
 
 pub struct StateMonitor {
     interval: Duration,
@@ -37,8 +37,7 @@ impl StateMonitor {
                 }
                 Err(e) => {
                     log::error!("Error retrieving last PR event timestamp: {:?}", e);
-                    log::warn!("Defaulting to 720 days ago");
-                    (Utc::now() - chrono::Duration::days(720)).naive_utc()
+                    continue;
                 }
             };
             if let Err(e) = analyze.analyze(SyncMode::Since(from)).await {

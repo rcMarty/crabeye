@@ -9,7 +9,6 @@ pub mod monitoring;
 use crate::api::app_state::AppState;
 use crate::commands::{Cli, Commands};
 use crate::config::Config;
-use crate::db::model::pr_event::PullRequestStatus;
 use crate::db::Database;
 use crate::git::Analyze;
 use aide::axum::{
@@ -23,8 +22,6 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
-use reqwest::StatusCode;
-use schemars::JsonSchema;
 use std::sync::Arc;
 
 lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
