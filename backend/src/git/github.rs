@@ -46,15 +46,14 @@ impl GitHubApi {
             .get(&url)
             .send()
             .await
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .map_err(|err| format!("failed to fetch authorized users 1: {}", err))?
             .error_for_status()
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .map_err(|err| format!("failed to fetch authorized users 2: {}", err))?
             .json::<rust_team_data::v1::Teams>()
             .await
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))
-            .map(|teams| teams.teams)
-            .map(|indextype| indextype.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?;
+            .map_err(|err| format!("failed to fetch authorized users 3: {}", err))
+            .map(|teams| teams.teams.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
+            .map_err(|err| format!("failed to fetch authorized users 4: {}", err))?;
 
         let authorized_users = teams
             .iter()

@@ -8,7 +8,8 @@ use sqlx::Postgres;
 use sqlx::{FromRow, Row, Type};
 use std::hash::Hash;
 
-#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, )]
 pub struct TeamMember {
     #[sqlx(try_from = "i64")]
     pub github_id: u64,
@@ -18,7 +19,8 @@ pub struct TeamMember {
 }
 
 
-#[derive(Debug, Clone, PartialEq, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Team {
     pub team: String,
     pub subteam_of: Option<String>,
@@ -31,9 +33,8 @@ impl Hash for Team {
     }
 }
 
-#[derive(
-    Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
-)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, )]
 pub struct Contributor {
     #[sqlx(try_from = "i64")]
     pub github_id: u64,

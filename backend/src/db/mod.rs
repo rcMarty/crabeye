@@ -9,7 +9,7 @@ use crate::db::model::team_member::Team;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::{PgPool, Pool, Postgres, QueryBuilder};
+use sqlx::{PgPool, Pool, Postgres};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -47,25 +47,23 @@ impl Database {
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
 
-        let github_ids: Vec<i64> = team_members.iter().map(|user| user.github_id as i64).collect();
-        let github_names: Vec<&str> = team_members.iter().map(|user| user.github_name.as_str()).collect();
-        let names: Vec<&str> = team_members.iter().map(|user| user.name.as_str()).collect();
-
-        sqlx::query!(
-            r#"
-INSERT INTO contributors (github_id, github_name, name)
-SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[])
-ON CONFLICT (github_id) DO UPDATE SET
-github_name = EXCLUDED.github_name,
-name = EXCLUDED.name
-"#,
-            &github_ids[..],
-            &github_names[..] as &[&str],
-            &names[..] as &[&str]
-        )
-            .execute(&mut *tx)
-            .await?;
-
+        // for some reason when i try to bulk insert with unnest it fails with ON CONFLICT DO UPDATE command cannot affect row a second time
+        for member in team_members {
+            sqlx::query!(
+                r#"
+    INSERT INTO contributors (github_id, github_name, name)
+    Values ($1, $2, $3)
+    ON CONFLICT (github_id) DO UPDATE SET
+    github_name = EXCLUDED.github_name,
+    name = EXCLUDED.name
+    "#,
+                member.github_id as i64,
+                member.github_name.clone(),
+                member.name.clone()
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
         let teams: HashSet<Team> = team_members.iter().flat_map(|m| m.teams.iter().cloned()).collect();
         let team_names: Vec<String> = teams.iter().map(|team| team.team.clone()).collect();
         let subteams: Vec<_> = teams.iter().map(|team| team.subteam_of.clone()).collect();
@@ -94,6 +92,8 @@ kind = EXCLUDED.kind
             r#"
 INSERT INTO contributors_teams (github_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
+ON CONFLICT (github_id, team) DO UPDATE
+SET github_id = EXCLUDED.github_id, team = EXCLUDED.team
 "#,
                 &member_id,
                 &teams,
@@ -117,7 +117,7 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
                 r#"
 INSERT INTO contributors (github_id, github_name, name)
 select $1,$2,$3
-where not exists (select 1 from team_members where github_id = $1);
+where not exists (select 1 from contributors where github_id = $1);
 "#,
                 user.github_id as i64,
                 user.github_name,
@@ -400,7 +400,7 @@ LIMIT $4;
         let count = sqlx::query!(
             r#"
 select count(distinct github_id) as count
-from team_members
+from contributors
 where github_id in
 (
         select distinct contributor_gh_id
@@ -421,7 +421,7 @@ where github_id in
         let entries = sqlx::query_as::<_, model::team_member::Contributor>(
             r#"
 select distinct github_id, github_name
-from team_members
+from contributors
 where github_id in
       (
         select distinct contributor_gh_id
@@ -449,8 +449,8 @@ where github_id in
     */
     pub async fn get_prs_waiting_for_review(
         &self,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Vec<(i64, chrono::DateTime<chrono::Utc>)>> {
+        timestamp: DateTime<Utc>,
+    ) -> Result<Vec<(i64, DateTime<Utc>)>> {
         let record = sqlx::query!(
             r#"
 select pr, timestamp

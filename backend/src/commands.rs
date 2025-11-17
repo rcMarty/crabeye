@@ -2,6 +2,7 @@ use crate::db::model::pr_event::PullRequestStatus;
 use anyhow::Context;
 use chrono::{NaiveDate, NaiveDateTime};
 use clap::{Parser, Subcommand};
+use std::option::Option;
 
 #[derive(Parser)]
 #[command(name = "ranal", version, about = "Rust Analyzer CLI")]
@@ -14,8 +15,9 @@ pub struct Cli {
 pub enum Commands {
     /// Analyze the repository
     Analyze {
-        #[arg(short, long,value_parser=parse_sync_mode ,help = "From date (YYYY-MM-DD) or number of N pages")]
-        sync: crate::git::github::SyncMode,
+        #[arg(short, long,value_parser=parse_sync_mode ,help = "From date (YYYY-MM-DD) or number of N pages"
+        )]
+        sync: Option<crate::git::github::SyncMode>,
     },
     /// Serve the REST API
     Serve,

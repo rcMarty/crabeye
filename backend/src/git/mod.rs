@@ -3,7 +3,6 @@ use crate::db::Database;
 use crate::git::git::Repo;
 use crate::git::github::{GitHubApi, SyncMode};
 use crate::misc::with_progress_bar_async;
-use crate::MULTI_PROGRESS_BAR;
 use chrono::{DateTime, Utc};
 use git2::Oid;
 use indicatif::ProgressBar;

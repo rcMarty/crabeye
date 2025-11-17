@@ -12,13 +12,8 @@ use crate::config::Config;
 use crate::db::Database;
 use crate::git::Analyze;
 use crate::monitoring::state_tracker::StateMonitor;
-use aide::axum::{
-    routing::{get, post},
-    ApiRouter, IntoApiResponse,
-};
-use axum::extract::{Query, State};
-use axum::{Extension, Json};
-use chrono::{DateTime, NaiveTime};
+use aide::axum::ApiRouter;
+use axum::Extension;
 use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
@@ -47,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Analyze { sync } => {
             let analyze = Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
+            let sync = sync.unwrap_or(git::github::SyncMode::Last(10));
             analyze.analyze(sync).await?;
             log::info!("Analyze is completed");
 

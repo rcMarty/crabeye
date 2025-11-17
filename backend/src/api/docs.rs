@@ -1,6 +1,7 @@
-use std::sync::Arc;
-use crate::api::app_state;
+use crate::api::app_state::AppState;
+use aide::openapi::Tag;
 use aide::swagger::Swagger;
+use aide::transform::TransformOpenApi;
 use aide::{
     axum::{
         routing::{get, get_with},
@@ -10,10 +11,8 @@ use aide::{
     redoc::Redoc,
     scalar::Scalar,
 };
-use aide::openapi::Tag;
-use aide::transform::TransformOpenApi;
 use axum::{response::IntoResponse, Extension, Json};
-use crate::api::app_state::AppState;
+use std::sync::Arc;
 
 pub fn docs_routes(state: AppState) -> ApiRouter {
     aide::generate::infer_responses(true);
