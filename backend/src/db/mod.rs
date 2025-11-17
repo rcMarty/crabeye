@@ -7,7 +7,7 @@ use crate::api::Pagination;
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
 use anyhow::Result;
-use chrono::{NaiveDate, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, DateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres, QueryBuilder};
 
@@ -297,7 +297,7 @@ ORDER BY timestamp DESC
     */
     pub async fn get_pr_count_in_state(
         &self,
-        timestamp: chrono::DateTime<chrono::Utc>,
+        timestamp: DateTime<Utc>,
         state: PullRequestStatus,
     ) -> Result<i64> {
         let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
@@ -448,5 +448,22 @@ order by timestamp;
                 )
             })
             .collect::<Vec<_>>())
+    }
+}
+
+
+/// part where is querying from database misc functions
+impl Database {
+    /// Get the timestamp of the last PR event in the database
+    pub async fn get_last_pr_event_timestamp(&self) -> Result<Option<NaiveDateTime>> {
+        let record = sqlx::query!(
+            r#"
+SELECT MAX(timestamp) as timestamp FROM pr_state_history
+"#,
+        )
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(record.timestamp)
     }
 }

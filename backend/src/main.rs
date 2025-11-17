@@ -9,7 +9,6 @@ pub mod monitoring;
 use crate::api::app_state::AppState;
 use crate::commands::{Cli, Commands};
 use crate::config::Config;
-use crate::db::model::pr_event::PullRequestStatus;
 use crate::db::Database;
 use crate::git::Analyze;
 use aide::axum::{
@@ -23,8 +22,6 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
-use reqwest::StatusCode;
-use schemars::JsonSchema;
 use std::sync::Arc;
 
 lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
@@ -48,8 +45,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Analyze { sync } => {
-            let analyze =
-                Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
+            let analyze = Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
             analyze.analyze(sync).await?;
             log::info!("Analyze is completed");
 
@@ -61,6 +57,12 @@ async fn main() -> anyhow::Result<()> {
             log::info!("Exiting...");
         }
         Commands::Serve => {
+
+            // spawn the task to get new data every minute
+            let analyze = Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
+            let state_tracker = monitoring::state_tracker::StateMonitor::new(std::time::Duration::from_secs(60));
+
+            // set up and run the API server
             let mut api = aide::openapi::OpenApi::default();
 
             let cors_layer = tower_http::cors::CorsLayer::new()
@@ -78,7 +80,19 @@ async fn main() -> anyhow::Result<()> {
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:7878").await?;
             log::info!("serving API on URL: http://localhost:7878/docs");
-            axum::serve(listener, router).await?;
+
+
+            // run both the state tracker and the API server
+            tokio::select! {
+                _ = state_tracker.run(&analyze) => {
+                    log::info!("State tracker task ended");
+            }
+                res = axum::serve(listener, router) => {
+                    if let Err(e) = res {
+                        log::error!("API server error: {:?}", e);
+                    }
+                }
+            }
         }
     }
 

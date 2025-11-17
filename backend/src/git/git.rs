@@ -64,7 +64,7 @@ impl Repo {
         Self { repository }
     }
 
-    pub fn update(&mut self) -> anyhow::Result<()> {
+    pub fn update(&self) -> anyhow::Result<()> {
         let mut remote = self
             .repository
             .find_remote("origin")
