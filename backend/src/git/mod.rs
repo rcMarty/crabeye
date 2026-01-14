@@ -44,27 +44,31 @@ impl Analyze {
     }
 
     fn log_duration(start: DateTime<Utc>, end: DateTime<Utc>, message: &str) {
-        let duration_secs = end.signed_duration_since(start).num_seconds();
+        let duration_ms = end.signed_duration_since(start).num_milliseconds();
+        let duration_secs = duration_ms / 1000;
+        let ms = duration_ms % 1000;
         let format = match duration_secs {
-            0..60 => format!("{} seconds", duration_secs),
+            0..60 => format!("{}.{:03} seconds", duration_secs, ms),
             60..3600 => format!(
-                "{} minutes {} seconds",
+                "{} minutes {}.{:03} seconds",
                 duration_secs / 60,
-                duration_secs % 60
+                duration_secs % 60,
+                ms
             ),
             _ => format!(
-                "{} hours {} minutes {} seconds",
+                "{} hours {} minutes {}.{:03} seconds",
                 duration_secs / 3600,
                 (duration_secs % 3600) / 60,
-                duration_secs % 60
+                duration_secs % 60,
+                ms
             ),
         };
         log::info!("{} took: {}", message, format);
     }
 
+
     pub async fn analyze(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
-        let mut timestamp_start = Utc::now();
-        let overall_time = timestamp_start;
+        let overall_time = Utc::now();
         //users section
         log::info!("Getting users from github");
         let users = self
@@ -75,24 +79,28 @@ impl Analyze {
 
         log::info!("number of found users: {}", users.len());
 
+        let mut timestamp_start = Utc::now();
         if let Err(res) = self.database.upsert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
-
-        Self::log_duration(timestamp_start, Utc::now(), "Getting users from github: ");
+        Self::log_duration(timestamp_start, Utc::now(), "Upserting users from github: ");
         timestamp_start = Utc::now();
 
         // pr section
         let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
         Self::log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
-        timestamp_start = Utc::now();
 
         // insert non existing contributors
         log::info!(
             "Inserting contributors to database ({} found)",
             contributors.len()
         );
+        timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
+        Self::log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
+
+
+        timestamp_start = Utc::now();
 
         with_progress_bar_async(
             prs.len(),

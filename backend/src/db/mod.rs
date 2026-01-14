@@ -58,17 +58,22 @@ impl Database {
     name = EXCLUDED.name
     "#,
                 member.github_id as i64,
-                member.github_name.clone(),
-                member.name.clone()
+                member.github_name,
+                member.name
             )
                 .execute(&mut *tx)
                 .await?;
         }
 
-        let teams: HashSet<Team> = team_members.iter().flat_map(|m| m.teams.iter().cloned()).collect();
-        let team_names: Vec<String> = teams.iter().map(|team| team.team.clone()).collect();
-        let subteams: Vec<_> = teams.iter().map(|team| team.subteam_of.clone()).collect();
-        let kinds: Vec<_> = teams.iter().map(|team| Self::team_kind_to_str(team.kind)).collect();
+        let teams: HashMap<&String, Team> = team_members.iter()
+            .flat_map(|tm| tm.teams.iter())
+            .fold(HashMap::new(), |mut map, team| {
+                map.entry(&team.team).or_insert_with(|| team.clone());
+                map
+            });
+        let subteams: Vec<_> = teams.values().map(|team| team.subteam_of.clone()).collect();
+        let kinds: Vec<_> = teams.values().map(|team| Self::team_kind_to_str(team.kind)).collect();
+
         sqlx::query!(
             r#"
 INSERT INTO teams (team, subteam_of, kind)
@@ -77,7 +82,7 @@ ON CONFLICT (team) DO UPDATE SET
 subteam_of = EXCLUDED.subteam_of,
 kind = EXCLUDED.kind
 "#,
-            &team_names,
+            &teams.keys().cloned().collect::<Vec<&String>>() as &[&String],
             &subteams as &[Option<String>],
             &kinds as &[&str]
         )
@@ -88,12 +93,13 @@ kind = EXCLUDED.kind
             let member_id: Vec<i64> = vec![member.github_id as i64; member.teams.len()];
             let teams = member.teams.iter().map(|t| t.team.clone()).collect::<Vec<_>>();
 
+
+            sqlx::query!("DELETE FROM contributors_teams").execute(&mut *tx).await?;
+
             sqlx::query!(
                 r#"
 INSERT INTO contributors_teams (github_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
-ON CONFLICT (github_id, team) DO UPDATE
-SET github_id = EXCLUDED.github_id, team = EXCLUDED.team
 "#,
                 &member_id,
                 &teams,
@@ -241,7 +247,7 @@ ON CONFLICT (timestamp) DO NOTHING
         let user_id = activity.user_id.0 as i64;
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, contributor_gh_id, timestamp)
+INSERT INTO file_activity(pr, file_path, contributor_id, timestamp)
 VALUES ($1,$2,$3,$4)
                "#,
             activity.pr,
@@ -262,7 +268,7 @@ VALUES ($1,$2,$3,$4)
 
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, contributor_gh_id, timestamp)
+INSERT INTO file_activity(pr, file_path, contributor_id, timestamp)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::BIGINT[], $4::TIMESTAMP[])
 as t(pr, file_path, user_login, timestamp)
                "#,
@@ -354,7 +360,7 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
             r#"
 select pr, file_path
 from file_activity
-where contributor_gh_id = $1
+where contributor_id = $1
   and timestamp between $2 and $3
 order by timestamp DESC
 LIMIT $4;
@@ -400,7 +406,7 @@ select count(distinct github_id) as count
 from contributors
 where github_id in
 (
-        select distinct contributor_gh_id
+        select distinct contributor_id
         from file_activity
         where file_path like $1
           and timestamp between $2 and $3
@@ -421,11 +427,11 @@ select distinct github_id, github_name
 from contributors
 where github_id in
       (
-        select distinct contributor_gh_id
+        select distinct contributor_id
         from file_activity
         where file_path like $1
           and timestamp between $2 and $3
-        order by contributor_gh_id
+        order by contributor_id
         offset $4 limit $5
         );
 "#,

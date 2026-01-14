@@ -9,7 +9,7 @@ use sqlx::{FromRow, Row, Type};
 use std::hash::Hash;
 
 #[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
-#[derive(Hash, PartialEq, Eq, Debug, Clone, )]
+#[derive(PartialEq, Debug, Clone)]
 pub struct TeamMember {
     #[sqlx(try_from = "i64")]
     pub github_id: u64,
@@ -25,12 +25,6 @@ pub struct Team {
     pub team: String,
     pub subteam_of: Option<String>,
     pub kind: rust_team_data::v1::TeamKind,
-}
-impl Eq for Team {}
-impl Hash for Team {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.team.hash(state);
-    }
 }
 
 #[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

@@ -26,7 +26,7 @@ CREATE TABLE teams
 CREATE TABLE contributors_teams
 (
     github_id BIGINT NOT NULL,
-    team      TEXT   NOT NULL,
+    team      TEXT   NOT NULL REFERENCES teams (team),
     PRIMARY KEY (github_id, team)
 );
 
@@ -40,7 +40,7 @@ CREATE TABLE contributors
 CREATE TABLE pull_requests
 (
     pr             BIGINT PRIMARY KEY,
-    contributor_id BIGINT NOT NULL,
+    contributor_id BIGINT NOT NULL REFERENCES contributors (github_id),
     current_state  TEXT   NOT NULL,
     merge_sha      TEXT,
     timestamp      TIMESTAMP
@@ -61,10 +61,10 @@ CREATE TABLE pr_state_history
 
 CREATE TABLE file_activity
 (
-    id                SERIAL PRIMARY KEY,
-    pr                BIGINT    NOT NULL, -- REFERENCES pull_requests (pr),
-    file_path         TEXT      NOT NULL,
-    contributor_gh_id BIGINT    NOT NULL,
-    activity_type     TEXT,
-    timestamp         TIMESTAMP NOT NULL
+    id             SERIAL PRIMARY KEY,
+    pr             BIGINT    NOT NULL, -- REFERENCES pull_requests (pr),
+    file_path      TEXT      NOT NULL,
+    contributor_id BIGINT    NOT NULL,
+    activity_type  TEXT,
+    timestamp      TIMESTAMP NOT NULL
 );
