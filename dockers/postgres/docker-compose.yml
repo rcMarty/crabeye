@@ -16,7 +16,7 @@ services:
     image: rust:latest
     working_dir: /app
     volumes:
-      - ./backend:/app
+      - ./../../backend:/app
     environment:
       - DATABASE_URL=postgres://ranal_user:S3cret@postgres:5432/ranal_db
     depends_on:

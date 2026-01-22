@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
-use crate::db::model::team_member::{Contributor, TeamMember};
+use crate::db::model::team_member;
 use crate::misc::with_progress_bar_async;
 use crate::MULTI_PROGRESS_BAR;
 use anyhow::Context;
@@ -39,22 +39,21 @@ impl GitHubApi {
         })
     }
 
-    pub async fn get_authorized_users(&self) -> Result<Vec<TeamMember>, String> {
+    pub async fn get_authorized_users(&self) -> Result<Vec<team_member::TeamMember>, String> {
         let url = format!("{}/teams.json", ::rust_team_data::v1::BASE_URL);
         let client = reqwest::Client::new();
         let teams = client
             .get(&url)
             .send()
             .await
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .map_err(|err| format!("failed to fetch authorized users 1: {}", err))?
             .error_for_status()
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?
+            .map_err(|err| format!("failed to fetch authorized users 2: {}", err))?
             .json::<rust_team_data::v1::Teams>()
             .await
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))
-            .map(|teams| teams.teams)
-            .map(|indextype| indextype.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
-            .map_err(|err| format!("failed to fetch authorized users: {}", err))?;
+            .map_err(|err| format!("failed to fetch authorized users 3: {}", err))
+            .map(|teams| teams.teams.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
+            .map_err(|err| format!("failed to fetch authorized users 4: {}", err))?;
 
         let authorized_users = teams
             .iter()
@@ -62,17 +61,19 @@ impl GitHubApi {
             .flat_map(|team| {
                 team.members
                     .iter()
-                    .map(|member| TeamMember {
+                    .map(|member| team_member::TeamMember {
                         github_id: member.github_id,
                         github_name: member.github.clone(),
                         name: member.name.clone(),
-                        team: team.name.clone(),
-                        subteam_of: team.subteam_of.clone(),
-                        kind: team.kind,
+                        teams: vec![team_member::Team {
+                            team: team.name.clone(),
+                            subteam_of: team.subteam_of.clone(),
+                            kind: team.kind,
+                        }],
                     })
-                    .collect::<Vec<TeamMember>>()
+                    .collect::<Vec<team_member::TeamMember>>()
             })
-            .collect::<Vec<TeamMember>>();
+            .collect::<Vec<team_member::TeamMember>>();
         Ok(authorized_users)
     }
 
@@ -122,7 +123,7 @@ impl GitHubApi {
         &self,
         state: params::State,
         sync_mode: SyncMode,
-    ) -> anyhow::Result<(Vec<PrEvent>, Vec<Contributor>)> {
+    ) -> anyhow::Result<(Vec<PrEvent>, Vec<team_member::Contributor>)> {
         // check how many prs are there in total
         let pr = self
             .octocrab
@@ -142,7 +143,7 @@ impl GitHubApi {
         );
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
-        let mut parsed_users: Vec<Contributor> = Vec::new();
+        let mut parsed_users: Vec<team_member::Contributor> = Vec::new();
 
         match sync_mode {
             SyncMode::Since(since) => {
@@ -165,9 +166,7 @@ impl GitHubApi {
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
-                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
-                            < since =>
-                        {
+                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc() < since => {
                             log::info!("No more pull requests to process, stopping at page {page}");
                             break 'pageLoop;
                         }
@@ -237,7 +236,7 @@ impl GitHubApi {
                         Ok(())
                     },
                 )
-                .await?;
+                    .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
@@ -246,7 +245,7 @@ impl GitHubApi {
 
 fn parse_prs(
     parsed_prs: &mut Vec<PrEvent>,
-    parsed_users: &mut Vec<Contributor>,
+    parsed_users: &mut Vec<team_member::Contributor>,
     pr: octocrab::Page<PullRequest>,
 ) {
     for pr in pr.items {
@@ -254,7 +253,7 @@ fn parse_prs(
         // log::info!("labels: {:#?}", pr.labels);
         //TODO add labels for pr events
         let pr_copy = pr.clone();
-        parsed_users.push(Contributor::from(
+        parsed_users.push(team_member::Contributor::from(
             *pr_copy.user.expect("No user in Contributor"),
         ));
 
@@ -270,9 +269,9 @@ fn parse_prs(
                     pr.created_at.expect("Missing created time"),
                     None,
                 )
-                .unwrap_or(PullRequestStatus::Open {
-                    time: pr.created_at.expect("Missing created time"),
-                }),
+                    .unwrap_or(PullRequestStatus::Open {
+                        time: pr.created_at.expect("Missing created time"),
+                    }),
                 (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                     time: pr.created_at.expect("Missing created time"),
                 },

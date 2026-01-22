@@ -1,6 +1,6 @@
 use crate::git::github::SyncMode;
 use crate::git::Analyze;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use std::time::Duration;
 use tokio::time;
 
