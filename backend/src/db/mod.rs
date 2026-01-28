@@ -4,10 +4,10 @@ pub mod model;
 // src/db/mod.rs
 use crate::api::Pagination;
 use crate::db::model::paginated_response::PaginatedResponse;
-use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus};
+use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus, PullRequestStatusRequest};
 use crate::db::model::team_member::Team;
 use anyhow::Result;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::{HashMap, HashSet};
@@ -17,7 +17,7 @@ pub struct Database {
     pub pool: Pool<Postgres>,
 }
 
-// part where is inserting into database
+/// part where is inserting into database
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self> {
         // i guess this is useless since sqlx is checking database in compiletime already
@@ -283,17 +283,37 @@ as t(pr, file_path, user_login, timestamp)
     }
 }
 
-// part where is analyzing functions
+
+/// Analysis/query helpers for PRs and file activity.
+///
+/// This impl block contains a set of helper methods that perform read-only
+/// analytical queries against the database. The methods typically translate
+/// a higher-level question (e.g. "what was the PR state on a given day?")
+/// into SQL queries and return parsed results. Notes:
+/// - Several functions use date truncation to day-bound queries (00:00..00:00 next day).
+/// - Timezone handling: functions usually convert to NaiveDateTime or use UTC.
+/// - Pagination is supported where results may be large.
 impl Database {
-    /**
-    TEMP: Jaký byl stav konkrétního PR v daný timestamp?
-    */
+    /// Return the list of PR states recorded for `pr` on the day that contains `timestamp`.
+    ///
+    /// The function considers the full day that contains `timestamp` (from 00:00 to 00:00 next day)
+    /// and returns distinct state values found in `pr_state_history` for that PR ordered by the
+    /// recorded timestamp descending. The returned Vec contains state strings in that order.
+    ///
+    /// Parameters:
+    /// - `pr`: pull request number (database `pr` column).
+    /// - `timestamp`: a DateTime<Utc>; only the day portion is used to form the search window.
+    ///
+    /// Returns:
+    /// - `Ok(Vec<String>)` with states found for that day (may be empty).
+    /// - `Err(...)` on SQL/DB errors.
+    //TEMP: Jaký byl stav konkrétního PR v daný timestamp?
     pub async fn get_pr_state_at(
         &self,
         pr: i64,
-        timestamp: chrono::DateTime<chrono::Utc>,
+        timestamp: NaiveDate,
     ) -> Result<Vec<String>> {
-        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let record = sqlx::query!(
@@ -316,17 +336,26 @@ ORDER BY timestamp DESC
         Ok(ret)
     }
 
-    /**
-    TEMP: Jaký byl počet PR v daném stavu (waiting for review, waiting for author, waiting for bors, merged) v daný timestamp/den.
 
-    Get the count of the state of the pull request at the given timestamp
-    */
+    /// Count PR state occurrences for a given day.
+    ///
+    /// Returns the number of pr_state_history rows that match `state` between
+    /// 00:00 and 00:00 (next day) of the provided `timestamp` (UTC).
+    ///
+    /// Parameters:
+    /// - `timestamp`: DateTime<Utc> used to compute the day window.
+    /// - `state`: PullRequestStatus enum; `.as_str()` is used in the query.
+    ///
+    /// Returns:
+    /// - `Ok(i64)` count of matching rows.
+    /// - `Err(...)` on SQL/DB errors.
+    //TEMP: Jaký byl počet PR v daném stavu (waiting for review, waiting for author, waiting for bors, merged) v daný timestamp/den.
     pub async fn get_pr_count_in_state(
         &self,
-        timestamp: DateTime<Utc>,
-        state: PullRequestStatus,
+        timestamp: NaiveDate,
+        state: PullRequestStatusRequest,
     ) -> Result<i64> {
-        let timestamp_start = timestamp.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let record = sqlx::query!(
@@ -336,7 +365,7 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
                "#,
             timestamp_start,
             timestamp_end,
-            state.as_str()
+            state.to_string()
         )
             .fetch_one(&self.pool)
             .await?;
@@ -344,9 +373,26 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
         Ok(record.count.unwrap())
     }
 
-    /**
-    TEMP -- 3) Pro daného uživatele/tým (z https://github.com/rust-lang/team), jakých je top N souborů, které byly buď upraveny nebo reviewovány za posledních N časových jednotek?
-    */
+
+    /// Get top N file activities for a user within a duration (simple latest-N query).
+    ///
+    /// This function fetches up to `n` file activity records for `user_id` where the activity
+    /// timestamp is between (now - `duration`) and now. The returned Vec contains tuples
+    /// `(file_path, pr)` ordered by activity timestamp descending as returned by the SQL query.
+    ///
+    /// Notes:
+    /// - This is NOT an aggregated "top files by count" query; it returns recent file activities limited to N.
+    /// - `duration` should be a chrono::Duration indicating how far back to search.
+    ///
+    /// Parameters:
+    /// - `user_id`: contributor id to filter file_activity.contributor_id.
+    /// - `duration`: chrono::Duration window to look back from today (day-aligned).
+    /// - `n`: maximum number of rows to return.
+    ///
+    /// Returns:
+    /// - `Ok(Vec<(String, i64)>)` where tuple is (file_path, pr).
+    /// - `Err(...)` on SQL/DB errors.
+    //TEMP -- 3) Pro daného uživatele/tým (z https://github.com/rust-lang/team), jakých je top N souborů, které byly buď upraveny nebo reviewovány za posledních N časových jednotek?
     pub async fn get_top_n_files(
         &self,
         user_id: i64,
@@ -357,7 +403,7 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
         let timestamp_start = timestamp_end - duration;
 
         let record = sqlx::query!(
-            r#"
+            r#"--
 select pr, file_path
 from file_activity
 where contributor_id = $1
@@ -378,18 +424,36 @@ LIMIT $4;
             .collect::<Vec<_>>())
     }
 
-    /**
-    TEMP Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N dní od určitého datumu upravovali nebo reviewovali?
-    TODO mby add on which pr it was
-    */
+
+    /// List users who modified (or reviewed) a file path prefix in a time window, paginated.
+    ///
+    /// This method treats `file_path` as a prefix pattern: it appends `%` and uses SQL `LIKE`.
+    /// The search window is computed from `from_timestamp` (or now if None) minus `last_n_days`
+    /// (defaults to 7 days).
+    ///
+    /// Parameters:
+    /// - `file_path`: prefix string (not full SQL pattern); function will search `file_path%`.
+    /// - `from_timestamp`: optional NaiveDateTime indicating the end of the window; defaults to now.
+    /// - `last_n_days`: optional number of days to look back; defaults to 7.
+    /// - `pagination`: Pagination object; controls limit + offset of returned contributors.
+    ///
+    /// Returns:
+    /// - `Ok(PaginatedResponse<Contributor>)` containing the contributor entries and total count.
+    /// - `Err(...)` on SQL/DB errors.
+    ///
+    /// Implementation details:
+    /// - Count query computes distinct contributors matching the file pattern and timestamp window.
+    /// - Entries query returns distinct (github_id, github_name) for matching contributors and applies pagination.
+    //TEMP Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N dní od určitého datumu upravovali nebo reviewovali?
+    //TODO mby add on which pr it was
     pub async fn get_users_who_modified_file(
         &self,
         file_path: String,
-        from_timestamp: Option<NaiveDateTime>,
+        from_timestamp: Option<NaiveDate>,
         last_n_days: Option<i64>,
         pagination: Pagination,
     ) -> Result<PaginatedResponse<model::team_member::Contributor>> {
-        let timestamp_end = from_timestamp.unwrap_or(Utc::now().naive_utc());
+        let timestamp_end = from_timestamp.unwrap_or(Utc::now().date_naive()).and_hms_opt(0, 0, 0).unwrap();
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         log::debug!(
             "timestamp_ start {} end {}",
@@ -447,13 +511,42 @@ where github_id in
         Ok(PaginatedResponse::new(count, pagination, entries))
     }
 
-    /**
-    temp -- 5) dotaz: PR, které čekají nejdelší dobu na review (jednodušší verze: jsou nejdelší čas ve stavu "waiting-on-review",
-    */
+
+    /// Return PRs that are currently waiting for review (or related waiting states).
+    ///
+    /// The current implementation queries `pr_state_history` and selects the latest record
+    /// per-pr (no separate timestamp filter is used despite the `timestamp` parameter).
+    /// It filters states in {'S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author'}
+    /// and returns a Vec of (pr, timestamp_of_latest_state). Results are ordered by the stored timestamp.
+    ///
+    /// Note: the `timestamp` parameter is presently unused in the SQL and may be removed or used
+    /// for additional filtering in the future.
+    ///
+    /// # Returns:
+    /// - `Ok(Vec<(i64, DateTime<Utc>)>)` where the second element is the stored timestamp converted to Utc.
+    /// - `Err(...)` on SQL/DB errors.
+    //temp -- 5) dotaz: PR, které čekají nejdelší dobu na review (jednodušší verze: jsou nejdelší čas ve stavu "waiting-on-review",
     pub async fn get_prs_waiting_for_review(
         &self,
-        timestamp: DateTime<Utc>,
-    ) -> Result<Vec<(i64, DateTime<Utc>)>> {
+        pagination: Pagination,
+    ) -> Result<PaginatedResponse<(i64, DateTime<Utc>)>> {
+        let (limit, offset) = pagination.limit_offset();
+        let count = sqlx::query!(
+            r#"
+select count(*) as count from (
+    select pr
+    from pr_state_history as p
+    where NOT EXISTS (SELECT id FROM pr_state_history AS p2 WHERE p.id = p2.id AND p2.timestamp > p.timestamp)
+        AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR p.state = 'S-waiting-on-author')
+) as subquery;
+"#,
+        )
+            .fetch_one(&self.pool)
+            .await?
+            .count
+            .unwrap_or(0) as usize;
+
+
         let record = sqlx::query!(
             r#"
 select pr, timestamp
@@ -465,15 +558,21 @@ order by timestamp;
         )
             .fetch_all(&self.pool)
             .await?;
-        Ok(record
-            .iter()
-            .map(|r| {
-                (
-                    r.pr,
-                    DateTime::<Utc>::from_naive_utc_and_offset(r.timestamp, Utc),
-                )
-            })
-            .collect::<Vec<_>>())
+        Ok(PaginatedResponse::new(
+            count,
+            pagination,
+            record
+                .iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .map(|r| {
+                    (
+                        r.pr,
+                        DateTime::<Utc>::from_naive_utc_and_offset(r.timestamp, Utc),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ))
     }
 }
 

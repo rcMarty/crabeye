@@ -1,10 +1,10 @@
+use crate::db::model::team_member::TeamMember;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
-use crate::db::model::team_member::TeamMember;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct PrEvent {
@@ -34,6 +34,31 @@ pub enum PullRequestStatus {
         merge_sha: String,
         time: DateTime<Utc>,
     },
+}
+
+/// Represents a request to filter pull requests by their status in API calls
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub enum PullRequestStatusRequest {
+    WaitingForReview,
+    WaitingForBors,
+    WaitingForAuthor,
+    Open,
+    Closed,
+    Merged,
+}
+
+impl Display for PullRequestStatusRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_str = match self {
+            PullRequestStatusRequest::WaitingForReview => "S-waiting-on-review",
+            PullRequestStatusRequest::WaitingForBors => "S-waiting-on-bors",
+            PullRequestStatusRequest::WaitingForAuthor => "S-waiting-on-author",
+            PullRequestStatusRequest::Open => "open",
+            PullRequestStatusRequest::Closed => "closed",
+            PullRequestStatusRequest::Merged => "merged",
+        };
+        write!(f, "{}", state_str)
+    }
 }
 
 #[derive(Debug, sqlx::FromRow)]

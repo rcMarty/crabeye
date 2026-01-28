@@ -31,9 +31,17 @@ POSTGRE:
 [2025-05-20T15:58:58.658Z INFO  ranal::git] Inserting to database:  took: 9 minutes 32 seconds
 [2025-05-20T15:58:58.658Z INFO  ranal::git] Overall getting resources:  took: 12 minutes 10 seconds
 
-
 # poznámky
 
+## backend
 
+- např. to parsování timeline eventů, pokud to ještě nemáte
 
+## api
+
+- graf počtu PR vytvořených lidmi z teamu vs lidmi mimo Rust týmy
+- počet zavřených/otevřených PR za den, ve stacked bar chartu, by byl zajímavý. a to stejné s issues
+- tj. expert mapa a statistiky, jak dlouho PR čekají na review?
+- těch statistik by bylo fajn tam mít více, viz https://rust-lang.github.io/rustc-pr-tracking, tj.
+  kolik se otevřelo/mergnulo PRs za den např.
 
