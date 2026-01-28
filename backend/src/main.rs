@@ -68,8 +68,9 @@ async fn main() -> anyhow::Result<()> {
                 .allow_headers(tower_http::cors::Any);
 
             let router = ApiRouter::new()
-                .nest_api_service("/api", api::review::review_routes(state.clone()))
+                .nest_api_service("/api/pr", api::review::pr_routes(state.clone()))
                 .nest_api_service("/docs", api::docs::docs_routes(state.clone()))
+                .route("/health", axum::routing::get(|| async { "OK" }))
                 .finish_api_with(&mut api, api::docs::api_docs)
                 .layer(cors_layer)
                 .layer(Extension(Arc::new(api)))

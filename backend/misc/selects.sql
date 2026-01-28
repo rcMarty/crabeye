@@ -5,7 +5,7 @@ where state = 'merged'
 
 -- 2) Jaký byl stav konkrétního PR v daný timestamp?
 -- spravit že ta změna nemusí být v tom between může být před
-SELECT distinct state
+SELECT distinct state, timestamp
 FROM pr_state_history
 WHERE pr = 138694
   and timestamp between '2025-03-21' and '2025-03-22'
@@ -23,7 +23,7 @@ WHERE timestamp BETWEEN '2025-03-21' AND '2025-03-22'
 
 select pr, file_path, timestamp
 from file_activity
-where user_login = 4539057
+where contributor_id = 4539057
   and timestamp between '2025-03-21' and '2025-03-22'
 order by timestamp desc
 limit 10;
@@ -31,14 +31,14 @@ limit 10;
 -- pro daného uživatele v časovém období kolik souborů změnil v kterých PR
 select pr, count(file_path) as count
 from file_activity
-where user_login = 476013
+where contributor_id = 476013
   and timestamp between '2025-03-21' and '2025-03-22'
 group by pr;
 
 
 -- 4) Pro daný soubor/složku, kteří uživatelé/týmy jej v posledních N časových jednotkách upravovali nebo reviewovali?
 -- TODO jak poznám že reviewovali
-select distinct user_login, pr
+select distinct contributor_id, pr
 from file_activity
 where file_path like 'compiler/rustc_hir_pretty/src/lib.rs%'
   and timestamp between '2022-03-21' and '2026-03-22';
@@ -52,8 +52,12 @@ order by count desc;
 -- 5) dotaz: PR, které čekají nejdelší dobu na review (jednodušší verze: jsou nejdelší čas ve stavu "waiting-on-review",
 select pr, timestamp
 from pr_state_history as p
-where NOT EXISTS (SELECT id FROM pr_state_history AS p2 WHERE p.id = p2.id AND p2.timestamp > p.timestamp)
-  AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR p.state = 'S-waiting-on-author')
+where NOT EXISTS (SELECT id
+                  FROM pr_state_history AS p2
+                  WHERE p.id = p2.id
+                    AND p2.timestamp > p.timestamp)
+  AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR
+       p.state = 'S-waiting-on-author')
 order by timestamp;
 
 
@@ -71,16 +75,22 @@ where pr = 129342;
 
 
 select distinct github_id, github_name
-from team_members
-where github_id in (select distinct user_login
-             from file_activity
-             where file_path like 'src/%'
-               and timestamp between '2024-03-21' and '2025-03-22'
-             order by user_login
-             limit 100 offset 0
-             );
+from contributors
+where github_id in (select distinct contributor_id
+                    from file_activity
+                    where file_path like 'src/%'
+                      and timestamp between '2024-03-21' and '2025-03-22'
+                    order by contributor_id
+                    limit 100 offset 0);
 
-select distinct user_login
+select distinct contributor_id
 from file_activity
 where file_path like $1
   and timestamp between $2 and $3
+
+
+--graf počtu PR vytvořených lidmi z teamu vs lidmi mimo Rust týmy
+
+
+--počet zavřených/otevřených PR za den, ve stacked bar chartu, by byl zajímavý. a to stejné s issues
+
