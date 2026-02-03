@@ -2,15 +2,16 @@
 pub mod model;
 
 // src/db/mod.rs
-use crate::api::Pagination;
+use crate::api::{Pagination, PrStateParams};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatus, PullRequestStatusRequest};
-use crate::db::model::team_member::Team;
+use crate::db::model::team_member::{Contributor, Team};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::{HashMap, HashSet};
+use crate::db::model::responses::TopFilesResponse;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -137,7 +138,7 @@ where not exists (select 1 from contributors where github_id = $1);
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
         let timestamp = event.get_timestamp().naive_utc();
         let merge_sha = event.get_merge_sha();
-        let author_id = event.author_id.0 as i64;
+        let author_id = event.author_id;
 
         sqlx::query!(
             r#"
@@ -244,7 +245,7 @@ ON CONFLICT (timestamp) DO NOTHING
     }
 
     pub async fn insert_file_activity(&self, activity: &FileActivity) -> Result<()> {
-        let user_id = activity.user_id.0 as i64;
+        let user_id = activity.user_id;
         sqlx::query!(
             r#"
 INSERT INTO file_activity(pr, file_path, contributor_id, timestamp)
@@ -261,7 +262,7 @@ VALUES ($1,$2,$3,$4)
     }
 
     pub async fn insert_file_activities(&self, activities: &[FileActivity]) -> Result<()> {
-        let user_ids = activities.iter().map(|activity| activity.user_id.0 as i64).collect::<Vec<_>>();
+        let user_ids = activities.iter().map(|activity| activity.user_id).collect::<Vec<_>>();
         let prs = activities.iter().map(|activity| activity.pr).collect::<Vec<_>>();
         let file_paths = activities.iter().map(|activity| activity.file_path.as_str()).collect::<Vec<_>>();
         let timestamps = activities.iter().map(|activity| activity.timestamp.naive_utc()).collect::<Vec<_>>();
@@ -312,27 +313,25 @@ impl Database {
         &self,
         pr: i64,
         timestamp: NaiveDate,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<PullRequestStatus>> {
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
-        let record = sqlx::query!(
+        let ret = sqlx::query_as::<_, PullRequestStatus>(
             r#"
 SELECT distinct state, timestamp
 FROM pr_state_history
 WHERE pr = $1 and timestamp between $2 and $3
 ORDER BY timestamp DESC
 "#,
-            pr,
-            timestamp_start,
-            timestamp_end
         )
+            .bind(pr)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
             .fetch_all(&self.pool)
             .await?;
 
-        let ret = record.iter().map(|r| r.state.clone()).collect::<Vec<_>>();
         log::debug!("return value from get pr state at: \n{:?}", ret);
-
         Ok(ret)
     }
 
@@ -395,33 +394,32 @@ WHERE timestamp BETWEEN $1 AND $2 AND state = $3;
     //TEMP -- 3) Pro daného uživatele/tým (z https://github.com/rust-lang/team), jakých je top N souborů, které byly buď upraveny nebo reviewovány za posledních N časových jednotek?
     pub async fn get_top_n_files(
         &self,
-        user_id: i64,
+        contributors: Vec<Contributor>,
         duration: chrono::Duration,
         n: i64,
-    ) -> Result<Vec<(String, i64)>> {
+    ) -> Result<Vec<TopFilesResponse>> {
         let timestamp_end = Utc::now().date_naive().and_hms_opt(0, 0, 0).unwrap();
         let timestamp_start = timestamp_end - duration;
+        let ids = contributors.iter().map(|c| c.github_id as i64).collect::<Vec<i64>>();
 
-        let record = sqlx::query!(
+        let record = sqlx::query_as::<_, TopFilesResponse>(
             r#"--
-select pr, file_path
+select pr as pr_id, file_path, github_id, github_name, name
 from file_activity
-where contributor_id = $1
+join contributors c on file_activity.contributor_id = c.github_id
+where contributor_id = ANY($1)
   and timestamp between $2 and $3
 order by timestamp DESC
 LIMIT $4;
 "#,
-            user_id,
-            timestamp_start,
-            timestamp_end,
-            n
         )
+            .bind(&ids)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .bind(n)
             .fetch_all(&self.pool)
             .await?;
-        Ok(record
-            .iter()
-            .map(|r| (r.file_path.clone(), r.pr))
-            .collect::<Vec<_>>())
+        Ok(record)
     }
 
 
@@ -452,7 +450,7 @@ LIMIT $4;
         from_timestamp: Option<NaiveDate>,
         last_n_days: Option<i64>,
         pagination: Pagination,
-    ) -> Result<PaginatedResponse<model::team_member::Contributor>> {
+    ) -> Result<PaginatedResponse<Contributor>> {
         let timestamp_end = from_timestamp.unwrap_or(Utc::now().date_naive()).and_hms_opt(0, 0, 0).unwrap();
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         log::debug!(
@@ -485,9 +483,9 @@ where github_id in
             .count
             .unwrap_or(0) as usize;
 
-        let entries = sqlx::query_as::<_, model::team_member::Contributor>(
+        let entries = sqlx::query_as::<_, Contributor>(
             r#"
-select distinct github_id, github_name
+select distinct github_id, github_name, name
 from contributors
 where github_id in
       (
@@ -529,7 +527,9 @@ where github_id in
     pub async fn get_prs_waiting_for_review(
         &self,
         pagination: Pagination,
-    ) -> Result<PaginatedResponse<(i64, DateTime<Utc>)>> {
+    ) -> Result<PaginatedResponse<PrEvent>> {
+        log::debug!("get_prs_waiting_for_review called with pagination: page {}, per_page {}", pagination.page, pagination.per_page);
+
         let (limit, offset) = pagination.limit_offset();
         let count = sqlx::query!(
             r#"
@@ -547,32 +547,36 @@ select count(*) as count from (
             .unwrap_or(0) as usize;
 
 
-        let record = sqlx::query!(
+        // Rust
+        let record = sqlx::query_as::<_, PrEvent>(
             r#"
-select pr, timestamp
-from pr_state_history as p
-where NOT EXISTS (SELECT id FROM pr_state_history AS p2 WHERE p.id = p2.id AND p2.timestamp > p.timestamp)
-  AND (p.state = 'S-waiting-on-review' OR p.state = 'S-waiting-on-bors' OR p.state = 'S-waiting-on-author')
-order by timestamp;
+SELECT
+    p.pr        AS pr,
+    p.state     AS state,
+    p.timestamp AS timestamp,
+    p.merge_sha AS merge_sha,
+    c.github_id AS author_id
+FROM pr_state_history AS p
+JOIN pull_requests     AS pr_table ON p.pr = pr_table.pr
+JOIN contributors      AS c        ON pr_table.contributor_id = c.github_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM pr_state_history AS p2
+    WHERE p2.id <> p.id AND p2.pr = p.pr AND p2.timestamp > p.timestamp
+)
+  AND p.state IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
+ORDER BY p.timestamp
+OFFSET $1
+LIMIT $2;
 "#,
         )
+            .bind(offset)
+            .bind(limit)
             .fetch_all(&self.pool)
             .await?;
-        Ok(PaginatedResponse::new(
-            count,
-            pagination,
-            record
-                .iter()
-                .skip(offset as usize)
-                .take(limit as usize)
-                .map(|r| {
-                    (
-                        r.pr,
-                        DateTime::<Utc>::from_naive_utc_and_offset(r.timestamp, Utc),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        ))
+
+        log::debug!("return value from get_prs_waiting_for_review: \n{:?}", record);
+
+        Ok(PaginatedResponse::new(count, pagination, record))
     }
 }
 
@@ -589,5 +593,25 @@ SELECT MAX(timestamp) as timestamp FROM pr_state_history
             .await?;
 
         Ok(record.timestamp)
+    }
+
+    pub async fn get_user_id_by_name(&self, github_name: &String) -> Result<Option<Vec<Contributor>>> {
+        let github_name = format!("%{}%", github_name);
+        let record: Vec<Contributor> = sqlx::query_as::<_, Contributor>(
+            r#"
+SELECT name,github_name,github_id FROM contributors
+WHERE github_name ilike $1
+"#
+        )
+            .bind(github_name)
+            .fetch_all(&self.pool)
+            .await?
+            ;
+
+        Ok(if record.is_empty() {
+            None
+        } else {
+            Some(record)
+        })
     }
 }
