@@ -6,14 +6,14 @@ use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
 
-#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PrEvent {
     pub pr_number: i64,
-    pub author_id: octocrab::models::UserId,
+    pub author_id: i64,
     pub state: PullRequestStatus,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub enum PullRequestStatus {
     WaitingForReview {
         time: DateTime<Utc>,
@@ -34,6 +34,30 @@ pub enum PullRequestStatus {
         merge_sha: String,
         time: DateTime<Utc>,
     },
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let state: String = row.try_get("state")?;
+        let timestamp: DateTime<Utc> = DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
+        let merge_sha: Option<String> = row.try_get("merge_sha")?;
+
+        match state.as_str() {
+            "open" => Ok(PullRequestStatus::Open { time: timestamp }),
+            "closed" => Ok(PullRequestStatus::Closed { time: timestamp }),
+            "merged" => {
+                if let Some(merge_sha) = merge_sha {
+                    Ok(PullRequestStatus::Merged { merge_sha, time: timestamp })
+                } else {
+                    Err(sqlx::Error::Decode("Merge SHA is required for merged state".into()))
+                }
+            }
+            "S-waiting-on-review" => Ok(PullRequestStatus::WaitingForReview { time: timestamp }),
+            "S-waiting-on-bors" => Ok(PullRequestStatus::WaitingForBors { time: timestamp }),
+            "S-waiting-on-author" => Ok(PullRequestStatus::WaitingForAuthor { time: timestamp }),
+            _ => Err(sqlx::Error::Decode("Invalid state".into())),
+        }
+    }
 }
 
 /// Represents a request to filter pull requests by their status in API calls
@@ -65,7 +89,7 @@ impl Display for PullRequestStatusRequest {
 pub struct FileActivity {
     pub pr: i64,
     pub file_path: String,
-    pub user_id: octocrab::models::UserId,
+    pub user_id: i64,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -94,7 +118,7 @@ impl PrEvent {
         let state_str = self.state.as_str();
         let timestamp = self.get_timestamp().naive_utc();
         let merge_sha = self.get_merge_sha();
-        let author_id = self.author_id.0 as i64;
+        let author_id = self.author_id;
 
         (self.pr_number, state_str, timestamp, merge_sha, author_id)
     }
@@ -126,7 +150,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let pr_number: i64 = row.try_get("pr")?;
         let state: String = row.try_get("state")?;
-        let timestamp: DateTime<Utc> = row.try_get("timestamp")?;
+        let timestamp: DateTime<Utc> = DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
         let merge_sha: Option<String> = row.try_get("merge_sha")?;
         let author_id: i64 = row.try_get("author_id")?;
 
@@ -145,7 +169,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
 
         Ok(PrEvent {
             pr_number,
-            author_id: octocrab::models::UserId(author_id as u64),
+            author_id,
             state: status,
         })
     }

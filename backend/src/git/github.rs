@@ -259,7 +259,7 @@ fn parse_prs(
 
         let parsed = PrEvent {
             pr_number: pr.number as i64,
-            author_id: pr.user.expect("No author in PrEvent").id,
+            author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
             state: match (pr.state, pr.merged_at, pr.labels) {
                 (Some(IssueState::Open), _, Some(labels)) => PullRequestStatus::find_status(
                     labels

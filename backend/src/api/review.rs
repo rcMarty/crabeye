@@ -1,7 +1,9 @@
 use crate::api::app_state::AppState;
-use crate::api::{Pagination, PrCountParams, PrStateParams, PrTopFilesParams, ReviewParams};
+use crate::api::{OptPagination, Pagination, PrCountParams, PrStateParams, PrTopFilesParams, ReviewParams};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::team_member::Contributor;
+use crate::db::model::responses::TopFilesResponse;
+use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
 use aide::axum::{
     routing::get_with,
     ApiRouter, IntoApiResponse,
@@ -19,7 +21,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
         .api_route(
             "/reviewers",
             get_with(made_review, |op| {
-                op.description("Get users who made reviews on a specific file within a date range")
+                op.description("Get users who made reviews on a specific file/path within a date range")
                     .tag("PR")
                     .response::<200, Json<PaginatedResponse<Contributor>>>()
                     .response::<500, (StatusCode, String)>()
@@ -30,7 +32,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             get_with(top_n_files, |op| {
                 op.description("Get top N files modified by a user within a duration")
                     .tag("PR")
-                    .response::<200, Json<Vec<(String, i64)>>>()
+                    .response::<200, Json<Vec<TopFilesResponse>>>()
                     .response::<500, (StatusCode, String)>()
             }),
         )
@@ -48,7 +50,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             get_with(pr_state, |op| {
                 op.description("Get the state of a PR at a specific timestamp")
                     .tag("PR")
-                    .response::<200, Json<Vec<(String, String)>>>()
+                    .response::<200, Json<Vec<PullRequestStatus>>>()
                     .response::<500, (StatusCode, String)>()
             }),
         )
@@ -57,7 +59,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             get_with(waiting_for_review, |op| {
                 op.description("Get PRs that are currently waiting for review")
                     .tag("PR")
-                    .response::<200, Json<PaginatedResponse<String>>>()
+                    .response::<200, Json<PaginatedResponse<PrEvent>>>()
                     .response::<500, (StatusCode, String)>()
             }),
         )
@@ -75,7 +77,7 @@ async fn made_review(
         params.file,
         params.from_date,
         params.last_n_days,
-        Pagination::new(params.page, params.per_page),
+        params.pagination.unwrap_or_default(),
     ).await
     {
         Ok(reviewers) => (StatusCode::OK, Json(reviewers)).into_response(),
@@ -92,8 +94,26 @@ async fn top_n_files(
     State(app): State<AppState>,
     Query(params): Query<PrTopFilesParams>,
 ) -> impl IntoApiResponse {
+    let contributors = match app.db.get_user_id_by_name(&params.name).await {
+        Ok(Some(contributor)) => {
+            log::debug!("Found users {:?}",contributor);
+            if contributor.len() > 1 {
+                log::warn!("Multiple users found with name {}, using the first one", params.name);
+            }
+            contributor
+        }
+        Ok(None) => {
+            log::error!("Dependabot user not found");
+            return (StatusCode::NOT_FOUND, Json(format!("User {} not found", params.name))).into_response();
+        }
+        Err(err) => {
+            log::error!("Error getting dependabot user ID: {}", err);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(format!("Error getting user ID: {}", err))).into_response();
+        }
+    };
+
     match app.db.get_top_n_files(
-        params.user_id,
+        contributors,
         chrono::Duration::days(params.duration.unwrap_or(10)),
         params.top_n,
     ).await
@@ -142,9 +162,9 @@ async fn pr_state(
 #[debug_handler]
 async fn waiting_for_review(
     State(app): State<AppState>,
-    Query(limit): Query<Option<Pagination>>,
+    Query(limit): Query<OptPagination>,
 ) -> impl IntoApiResponse {
-    match app.db.get_prs_waiting_for_review(limit.unwrap_or_default()).await {
+    match app.db.get_prs_waiting_for_review(limit.pagination.unwrap_or_default()).await {
         Ok(files) => (StatusCode::OK, Json(files)).into_response(),
         Err(err) => {
             log::error!("Error getting most modified files: {}", err);

@@ -6,6 +6,15 @@ pub mod docs;
 pub mod review;
 pub mod webhooks;
 
+
+/// Optional pagination parameters
+/// Used in multiple endpoints
+/// If pagination is not provided, defaults are used
+/// See Pagination struct for details
+#[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone)]
+pub struct OptPagination {
+    pub pagination: Option<Pagination>,
+}
 /// Common pagination parameters
 /// Used in multiple endpoints
 /// Defaults to page 1 and 100 items per page
@@ -49,17 +58,15 @@ pub struct ReviewParams {
     last_n_days: Option<i64>,
     /// Start date (ISO 8601). default Now, example = "2025-01-01"
     from_date: Option<NaiveDate>,
-    /// Page number for pagination, default is 1
-    page: Option<i64>,
-    /// Number of items per page, default is 100, max is 1000
-    per_page: Option<i64>,
+
+    pagination: Option<Pagination>,
 }
 
 /// Parameters for getting top N files modified by a user
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct PrTopFilesParams {
     /// User ID to get top files for
-    pub user_id: i64,
+    pub name: String,
     /// Number of top files to return
     pub top_n: i64,
     /// Duration in days to look back, default is 10 days
