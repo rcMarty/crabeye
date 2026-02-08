@@ -241,7 +241,16 @@ impl GitHubApi {
             }
         }
     }
+
+    // pub async fn get_pull_request_timeline(
+    //     &self,
+    //     pr_number: u64,
+    // ) -> anyhow::Result<Vec<octocrab::models::timelines::TimelineEvent>> {
+    //     let mut events = Vec::new();
+    //     ()
+    // }
 }
+
 
 fn parse_prs(
     parsed_prs: &mut Vec<PrEvent>,

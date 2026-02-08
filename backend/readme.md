@@ -9,13 +9,22 @@ Track everything about contributors, issues, and repository activity — all wri
 - Track open and closed issues.
 - Gather repository statistics like commits, pull requests, and more.
 
+## Configuration
+
+Create a `.env` file in the `backend` directory from the provided `.env.example` file and fill in
+the required environment variables.
+
 ## Database
 
 ### Setup via Docker
 
-You can use [docker compose](../docker-compose.yml) to run a postgres database.
-That database will have ready all migrations that you can find under `migrations` folder.
-You can also run postgres database locally, but you need to create database manually.
+You can use [docker compose](./docker-compose.yml) to run a postgres database.
+You can also run postgres database locally.
+
+```bash
+docker compose up -d
+sqlx migrate run
+```
 
 ### Setup via local Postgres
 
@@ -23,24 +32,16 @@ Make sure you have a running Postgres instance.
 Create a database named `ranal` (or any name you prefer) and set up the connection string in the
 `.env` file.
 
-Now you can run migrations using `sqlx-cli`.
-
-```bash
-cd backend
-sqlx migrate run
-```
+Now you can create database `sqlx database create` and run migrations using `sqlx migrate run`.
+*database will be created as is in .nev file*
 
 *if you dont have sqlx-cli installed, you can do it by
 running: ``cargo install sqlx-cli --features native-tls``*
 
-## Configuration
-
-Create a `.env` file in the `backend` directory from the provided `.env.example` file and fill in
-the required environment variables.
-
 ## Usage
 
-This command will fill the database with last 500 pull requests as demonstration.
+This command will fill the database with last 500 pull requests as demonstration. *(Number is number
+of pages to fetch, each page contains 100 items)*
 
 ```bash
 cargo run -- analyze --sync 5
