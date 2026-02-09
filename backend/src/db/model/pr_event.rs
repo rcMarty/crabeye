@@ -36,6 +36,17 @@ pub enum PullRequestStatus {
     },
 }
 
+/// Represents a request to filter pull requests by their status in API calls
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub enum PullRequestStatusRequest {
+    WaitingForReview,
+    WaitingForBors,
+    WaitingForAuthor,
+    Open,
+    Closed,
+    Merged,
+}
+
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let state: String = row.try_get("state")?;
@@ -60,16 +71,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
     }
 }
 
-/// Represents a request to filter pull requests by their status in API calls
-#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
-pub enum PullRequestStatusRequest {
-    WaitingForReview,
-    WaitingForBors,
-    WaitingForAuthor,
-    Open,
-    Closed,
-    Merged,
-}
 
 impl Display for PullRequestStatusRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

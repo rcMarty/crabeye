@@ -66,7 +66,6 @@ impl Analyze {
         log::info!("{} took: {}", message, format);
     }
 
-
     pub async fn analyze(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
         let overall_time = Utc::now();
         //users section
@@ -79,12 +78,21 @@ impl Analyze {
 
         log::info!("number of found users: {}", users.len());
 
-        let mut timestamp_start = Utc::now();
+        let timestamp_start = Utc::now();
         if let Err(res) = self.database.upsert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
         Self::log_duration(timestamp_start, Utc::now(), "Upserting users from github: ");
-        timestamp_start = Utc::now();
+
+
+        self.analyze_prs(sync_mode.clone()).await?;
+        // self.analyze_issues(sync_mode).await?;
+
+        Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
+        Ok(())
+    }
+    pub async fn analyze_prs(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+        let mut timestamp_start = Utc::now();
 
         // pr section
         let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
@@ -102,9 +110,10 @@ impl Analyze {
 
         timestamp_start = Utc::now();
 
+        // process PRs and its files and contributors
         with_progress_bar_async(
             prs.len(),
-            "Processing".parse()?,
+            "Processing prs".parse()?,
             async |bar: &ProgressBar| {
                 for pr in prs.iter() {
                     bar.inc(1);
@@ -159,7 +168,48 @@ impl Analyze {
             .await?;
 
         Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
-        Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
+        Ok(())
+    }
+
+    pub async fn analyze_issues(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+        let mut timestamp_start = Utc::now();
+
+        // pr section
+        let (issues, contributors) = self.github.get_issues(State::All, sync_mode).await?;
+        Self::log_duration(timestamp_start, Utc::now(), "Getting issues: ");
+
+        // insert non existing contributors
+        log::info!(
+            "Upserting contributors to database ({} found)",
+            contributors.len()
+        );
+        timestamp_start = Utc::now();
+        self.database.upsert_contributors(&contributors).await?;
+        Self::log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
+
+
+        timestamp_start = Utc::now();
+
+        // process PRs and its files and contributors
+        with_progress_bar_async(
+            issues.len(),
+            "Processing".parse()?,
+            async |bar: &ProgressBar| {
+                for issue in issues.iter() {
+                    bar.inc(1);
+                    bar.set_message(format!("Processing issue #{}", issue.issue_number));
+                    log::debug!("{}", "_".repeat(69));
+                    log::debug!("{:#?}", issue);
+                    // if let Err(res) = self.database.insert_issue_event(issue).await {
+                    //     log::error!("Error when inserting issue event to database: {:?}", res);
+                    // }
+                }
+                Ok(())
+            },
+        )
+            .await?;
+
+        Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Ok(())
     }
 }

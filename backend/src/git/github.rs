@@ -4,19 +4,20 @@ use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
 use crate::db::model::team_member;
 use crate::misc::with_progress_bar_async;
 use crate::MULTI_PROGRESS_BAR;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Direction;
 use indicatif::ProgressBar;
 use log::log;
-use octocrab::models::issues::Issue;
-use octocrab::models::pulls::PullRequest;
-use octocrab::models::IssueState;
-use octocrab::params::pulls::Sort;
-use octocrab::{params, Octocrab};
+use octocrab::{models, params, params::pulls, params::issues, Octocrab};
 use rust_team_data::v1::{PermissionPerson, Team};
 use secrecy::SecretString;
 use std::fmt::format;
+use octocrab::issues::ListIssuesBuilder;
+use octocrab::models::IssueState;
+use octocrab::models::timelines::TimelineEvent;
+use octocrab::pulls::ListPullRequestsBuilder;
+use octocrab::repos::ListPullsBuilder;
 
 pub struct GitHubApi {
     owner: String,
@@ -29,9 +30,6 @@ impl GitHubApi {
     /// * token - GitHub personal access token
     pub fn new(owner: String, repository: String, token: SecretString) -> anyhow::Result<Self> {
         let octocrab = Octocrab::builder().personal_token(token).build()?;
-        // let _ = octocrab::initialise(octocrab); // for whatever reason this doesnt return octocrab with auth
-        // let octocrab = octocrab::instance(); //this is needed to return right octocrab with auth
-
         Ok(Self {
             owner,
             repository,
@@ -79,44 +77,117 @@ impl GitHubApi {
 
     pub async fn get_issues(
         &self,
-        name: String,
         state: params::State,
-    ) -> anyhow::Result<Vec<Issue>> {
-        let page = self
-            .octocrab
-            .issues(self.owner.clone(), self.repository.clone())
-            .list()
-            .creator(name)
-            .state(state)
-            .per_page(100)
-            .send()
-            .await?;
+        sync_mode: SyncMode,
+    ) -> anyhow::Result<(Vec<crate::db::model::issue::Issue>, Vec<team_member::Contributor>)> {
+        // check how many prs are there in total
+        let issues = self.issue_request(state, 1, async |req| { req.send().await })
+            .await
+            .context(format!("Failed to get issues for {}/{}", self.owner, self.repository))?;
 
-        log::info!(
-            "Found {} issues, no of pages: {:?}, total count: {:?}",
-            page.items.len(),
-            page.number_of_pages(),
-            page.total_count
-        );
+        let mut parsed_issues: Vec<crate::db::model::issue::Issue> = Vec::new();
+        let mut parsed_users: Vec<team_member::Contributor> = Vec::new();
 
-        let result = self.octocrab.get_page::<Issue>(&page.next).await?;
-        log::info!(
-            "result: {:?}",
-            result.clone().unwrap().items.first().unwrap().url
-        );
-        let issues = result.unwrap().items;
+        match sync_mode {
+            SyncMode::Since(since) => {
+                log::info!("Synchronizing issues since {since}");
 
-        for issue in issues.iter() {
-            log::info!(
-                "#{}: {} {}\nauthor(s): {:?}\nlabels: {:?}\n",
-                issue.number,
-                issue.title,
-                issue.body_text.clone().unwrap_or("No body".to_string()),
-                issue.user.login,
-                issue.labels,
-            );
+                let mut page = 1u32;
+
+                'pageLoop: loop {
+                    let response = self.issue_request(state, page, async |req| {
+                        req
+                            .direction(params::Direction::Descending)
+                            .sort(issues::Sort::Updated)
+                            .send()
+                            .await
+                    })
+                        .await
+                        .context("Cannot get issues")?;
+
+
+                    self
+                        .octocrab
+                        .issues(self.owner.clone(), self.repository.clone())
+                        .list()
+                        .direction(params::Direction::Descending)
+                        .sort(issues::Sort::Updated)
+                        .state(state)
+                        .per_page(100)
+                        .page(page)
+                        .send()
+                        .await
+                        .context("Cannot get issues")?;
+
+                    log::debug!("Requesting {page} page of pull requests");
+                    match response.items.last().unwrap() {
+                        issue if issue.updated_at.naive_utc() < since => {
+                            log::info!("No more pull requests to process, stopping at page {page}");
+                            break 'pageLoop;
+                        }
+                        issue => {
+                            log::debug!("Processing page {page}");
+                            log::debug!("Found {} issues", response.items.len());
+                            log::debug!("Last PR updated at: {}",issue.updated_at.naive_utc());
+                            parse_issues(&mut parsed_issues, &mut parsed_users, response);
+                            page += 1;
+                        }
+                    }
+                }
+
+                Ok((parsed_issues, parsed_users))
+            }
+            SyncMode::Last(no_of_pages) => {
+                log::info!("Synchronizing last {no_of_pages} pages of pull requests");
+                let pages = if issues.number_of_pages() < Some(no_of_pages) {
+                    log::warn!("Found less than requested ({no_of_pages}) pull requests");
+                    log::warn!("Number of pages will be limited to {}", issues.number_of_pages().unwrap_or(0));
+                    issues.number_of_pages().unwrap_or(0)
+                } else {
+                    no_of_pages
+                };
+
+                with_progress_bar_async(
+                    pages as usize,
+                    "Processing".parse()?,
+                    async |bar: &ProgressBar| {
+                        for page in 1..=pages {
+                            bar.inc(1);
+                            bar.set_message(format!("Processing page {}/{}", page, pages));
+                            let pr = self
+                                .octocrab
+                                .issues(self.owner.clone(), self.repository.clone())
+                                .list()
+                                .page(page)
+                                .direction(params::Direction::Descending)
+                                .sort(issues::Sort::Created)
+                                .state(state)
+                                .per_page(100)
+                                .send()
+                                .await
+                                .context(format!(
+                                    "Failed to get pull requests for {}/{}",
+                                    self.owner, self.repository
+                                ))?;
+
+                            log::debug!("Requesting {page}/{pages} page of pull requests");
+                            log::debug!("Found {} pull requests", pr.items.len());
+
+                            // check if there are no more PRs
+                            if pr.items.is_empty() {
+                                break;
+                            }
+
+                            parse_issues(&mut parsed_issues, &mut parsed_users, pr);
+                        }
+                        bar.finish_with_message("Done");
+                        Ok(())
+                    },
+                )
+                    .await?;
+                Ok((parsed_issues, parsed_users))
+            }
         }
-        Ok(issues)
     }
 
     pub async fn get_pull_requests(
@@ -125,22 +196,9 @@ impl GitHubApi {
         sync_mode: SyncMode,
     ) -> anyhow::Result<(Vec<PrEvent>, Vec<team_member::Contributor>)> {
         // check how many prs are there in total
-        let pr = self
-            .octocrab
-            .pulls(self.owner.clone(), self.repository.clone())
-            .list()
-            .state(state)
-            .send()
+        let pr = self.pr_request(state, 1, async |req| { req.send().await })
             .await
-            .context(format!(
-                "Failed to get pull requests for {}/{}",
-                self.owner, self.repository
-            ))?;
-        log::info!(
-            "Found less than {} pull requests, no of pages: {}",
-            pr.items.len() * pr.number_of_pages().unwrap_or(0) as usize,
-            pr.number_of_pages().unwrap_or(0)
-        );
+            .context(format!("Failed to get pull requests for {}/{}", self.owner, self.repository))?;
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
         let mut parsed_users: Vec<team_member::Contributor> = Vec::new();
@@ -156,7 +214,7 @@ impl GitHubApi {
                         .pulls(self.owner.clone(), self.repository.clone())
                         .list()
                         .direction(params::Direction::Descending)
-                        .sort(Sort::Updated)
+                        .sort(pulls::Sort::Updated)
                         .state(state)
                         .per_page(100)
                         .page(page)
@@ -203,7 +261,7 @@ impl GitHubApi {
                     pages as usize,
                     "Processing".parse()?,
                     async |bar: &ProgressBar| {
-                        for page in 1..pages {
+                        for page in 1..=pages {
                             bar.inc(1);
                             bar.set_message(format!("Processing page {}/{}", page, pages));
                             let pr = self
@@ -212,7 +270,7 @@ impl GitHubApi {
                                 .list()
                                 .page(page)
                                 .direction(params::Direction::Descending)
-                                .sort(Sort::Created)
+                                .sort(pulls::Sort::Created)
                                 .state(state)
                                 .per_page(100)
                                 .send()
@@ -242,29 +300,105 @@ impl GitHubApi {
         }
     }
 
-    // pub async fn get_pull_request_timeline(
-    //     &self,
-    //     pr_number: u64,
-    // ) -> anyhow::Result<Vec<octocrab::models::timelines::TimelineEvent>> {
-    //     let mut events = Vec::new();
-    //     ()
-    // }
+    pub async fn get_pull_request_timeline(
+        &self,
+        pr_number: u64,
+    ) -> anyhow::Result<Vec<TimelineEvent>> {
+        let mut events: Vec<TimelineEvent> = Vec::new();
+        let mut page = 1u32;
+
+        let response = self
+            .octocrab
+            .issues(self.owner.clone(), self.repository.clone())
+            .list_timeline_events(pr_number)
+            .per_page(100)
+            .send()
+            .await
+            .context(format!("Failed to get timeline events for PR #{} in {}/{}", pr_number, self.owner, self.repository))?;
+
+        let pages = response.number_of_pages().unwrap_or(0);
+
+        events.extend(response.items);
+
+        if pages < 2 { return Ok(events); }
+
+        with_progress_bar_async(
+            pages as usize,
+            format!("Processing timeline of issue {pr_number}").parse()?,
+            async |bar: &ProgressBar| {
+                for page in 2..=pages {
+                    bar.inc(1);
+                    bar.set_message(format!("Processing page {}/{}", page, pages));
+                    let response = self
+                        .octocrab
+                        .issues(self.owner.clone(), self.repository.clone())
+                        .list_timeline_events(pr_number)
+                        .per_page(100)
+                        .page(page)
+                        .send()
+                        .await
+                        .context(format!(
+                            "Failed to get timeline events for PR #{} in {}/{}",
+                            pr_number, self.owner, self.repository
+                        ))?;
+
+                    log::debug!("Requesting {page}/{pages} page of timeline events");
+                    log::debug!("Found {} timeline events", response.items.len());
+
+                    // check if there are no more events
+                    if response.items.is_empty() {
+                        break;
+                    }
+
+                    events.extend(response.items);
+                }
+                bar.finish_with_message("Done");
+                Ok(())
+            },
+        )
+            .await?;
+
+
+        Ok(events)
+    }
+
+    async fn issue_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
+    where
+        F: AsyncFnOnce(ListIssuesBuilder<'_, '_, '_, '_>) -> R,
+    {
+        let issues = self.octocrab.issues(self.owner.clone(), self.repository.clone());
+        let req = issues
+            .list()
+            .per_page(100)
+            .page(page)
+            .state(state);
+
+        f(req).await
+    }
+
+    async fn pr_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
+    where
+        F: AsyncFnOnce(ListPullRequestsBuilder<'_, '_>) -> R,
+    {
+        let prs = self.octocrab.pulls(self.owner.clone(), self.repository.clone());
+        let req = prs
+            .list()
+            .per_page(100)
+            .page(page)
+            .state(state);
+
+        f(req).await
+    }
 }
 
 
 fn parse_prs(
     parsed_prs: &mut Vec<PrEvent>,
     parsed_users: &mut Vec<team_member::Contributor>,
-    pr: octocrab::Page<PullRequest>,
+    pr: octocrab::Page<octocrab::models::pulls::PullRequest>,
 ) {
     for pr in pr.items {
-        // log::info!("issue state: {:?}", pr.state);
-        // log::info!("labels: {:#?}", pr.labels);
-        //TODO add labels for pr events
-        let pr_copy = pr.clone();
-        parsed_users.push(team_member::Contributor::from(
-            *pr_copy.user.expect("No user in Contributor"),
-        ));
+        parsed_users.push(team_member::Contributor::from(*pr.user.clone().expect("No user in Contributor")));
 
         let parsed = PrEvent {
             pr_number: pr.number as i64,
@@ -306,6 +440,28 @@ fn parse_prs(
             },
         };
         parsed_prs.push(parsed);
+    }
+}
+
+fn parse_issues(
+    parsed_prs: &mut Vec<crate::db::model::issue::Issue>,
+    parsed_users: &mut Vec<team_member::Contributor>,
+    pr: octocrab::Page<octocrab::models::issues::Issue>,
+) {
+    for issue in pr.items {
+        parsed_users.push(team_member::Contributor::from(issue.user.clone()));
+
+        for label in issue.labels {
+            log::debug!("Issue #{} label: {}", issue.number, label.name);
+            let parsed = crate::db::model::issue::Issue {
+                issue_number: issue.number as i64,
+                author_id: issue.user.id.0 as i64,
+                timestamp: issue.created_at.naive_utc(),
+                label: label.name.to_string(),
+                action: crate::db::model::issue::LabelEventAction::Added,
+            };
+            parsed_prs.push(parsed);
+        }
     }
 }
 

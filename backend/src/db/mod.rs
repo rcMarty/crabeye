@@ -282,6 +282,26 @@ as t(pr, file_path, user_login, timestamp)
             .await?;
         Ok(())
     }
+
+    pub async fn insert_issues_event(&self, event: &[model::issue::Issue]) -> Result<()> {
+        sqlx::query!(
+            r#"
+INSERT INTO issues_state_history (issue, contributor_id,timestamp, label, label_event)
+SELECT * FROM UNNEST($1::BIGINT[], $2::BIGINT[], $3::TIMESTAMP[], $4::TEXT[], $5::TEXT[])
+         as t(issue, contributor_id, timestamp, label, label_event)
+ON CONFLICT (timestamp, label, label_event, issue) DO NOTHING
+"#,
+            &prs,
+            &states as &[&str],
+            &timestamps,
+            &merge_shas as &[Option<String>]
+        )
+            .execute(&self.pool)
+            .await?;
+
+
+        Ok(())
+    }
 }
 
 

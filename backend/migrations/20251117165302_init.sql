@@ -46,6 +46,17 @@ CREATE TABLE pull_requests
     timestamp      TIMESTAMP
 );
 
+
+CREATE TABLE issues_state_history
+(
+    id             SERIAL PRIMARY KEY,
+    issue          BIGINT,
+    contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
+    timestamp      TIMESTAMP NOT NULL,
+    label          TEXT,
+    label_event    TEXT CHECK ( label_event IN ('added', 'removed'))
+);
+
 CREATE TABLE pr_state_history
 (
     id        SERIAL PRIMARY KEY,
@@ -58,6 +69,7 @@ CREATE TABLE pr_state_history
 --         (state <> 'merged' AND merge_sha IS NULL)
 --         )
 );
+
 
 CREATE TABLE file_activity
 (

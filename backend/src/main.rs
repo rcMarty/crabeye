@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Analyze { sync } => {
             let analyze = Analyze::init(config.repo_name, config.repo_owner, config.github_token, db);
             let sync = sync.unwrap_or(git::github::SyncMode::Last(10));
-            analyze.analyze(sync).await?;
+            analyze.analyze_prs(sync).await?;
             log::info!("Analyze is completed");
 
             log::info!("Press enter to exit...");
