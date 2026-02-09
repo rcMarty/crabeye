@@ -10,3 +10,5 @@ CREATE INDEX IF NOT EXISTS idx_file_activity_file_path ON file_activity (file_pa
 CREATE INDEX IF NOT EXISTS idx_file_activity_user_login ON file_activity (contributor_id);
 
 CREATE INDEX IF NOT EXISTS idx_pull_requests_author_id ON pull_requests (contributor_id);
+
+CREATE INDEX IF NOT EXISTS idx_issues_state_history_upsert ON issues_state_history (timestamp, label, label_event, issue);

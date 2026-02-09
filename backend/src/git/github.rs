@@ -349,6 +349,7 @@ impl GitHubApi {
                     if response.items.is_empty() {
                         break;
                     }
+                    //TODO events primarily opened closed and so on
 
                     events.extend(response.items);
                 }

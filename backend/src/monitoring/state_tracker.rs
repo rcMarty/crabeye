@@ -40,7 +40,7 @@ impl StateMonitor {
                     continue;
                 }
             };
-            if let Err(e) = analyze.analyze(SyncMode::Since(from)).await {
+            if let Err(e) = analyze.analyze_prs(SyncMode::Since(from)).await {
                 log::error!("Error during state tracking: {:?}", e);
             } else {
                 log::info!("State tracking iteration completed successfully");

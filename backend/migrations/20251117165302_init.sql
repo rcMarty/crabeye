@@ -54,7 +54,8 @@ CREATE TABLE issues_state_history
     contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
     timestamp      TIMESTAMP NOT NULL,
     label          TEXT,
-    label_event    TEXT CHECK ( label_event IN ('added', 'removed'))
+    label_event    TEXT CHECK ( label_event IN ('added', 'removed')),
+    state          TEXT
 );
 
 CREATE TABLE pr_state_history

@@ -7,3 +7,5 @@ DROP TABLE IF EXISTS pull_requests;
 
 DROP TYPE IF EXISTS pr_state;
 DROP TYPE IF EXISTS team_kind;
+
+DROP TABLE IF EXISTS issues_state_history;
