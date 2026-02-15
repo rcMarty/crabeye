@@ -95,17 +95,17 @@ where file_path like $1
 --počet zavřených/otevřených PR za den, ve stacked bar chartu, by byl zajímavý. a to stejné s issues
 
 
-select * from issues_state_history
+select * from issue_state_history
 where issue = 8412;
 
 SELECT *
 FROM (
          SELECT DISTINCT ON (issue, label) *
-         FROM issues_state_history
-         WHERE issue = 8412
+         FROM issue_labels_history
+         WHERE issue = 8412 and repository = 'rust-lang/rust'
          ORDER BY issue, label, timestamp DESC
          -- dej mi jen poslední záznamy podle mimo jiné timestamp pro každou kombinaci issue a label_event
          -- (zaručeno že ten label_event bude latest)
      ) subquery
-WHERE label_event = 'added';
+WHERE action = 'ADDED';
 -- jen ty co byly přidány

@@ -6,16 +6,17 @@ use std::fmt::format;
 use std::path::Path;
 
 pub struct Repo {
+    pub repository_identifier: String,
     repository: Repository,
 }
 
 impl Repo {
-    pub fn init(repository_url: &str, path: &Path) -> anyhow::Result<Self> {
+    pub fn init(repository_identifier: String, repository_url: &str, path: &Path) -> anyhow::Result<Self> {
         if path.exists() {
-            let mut repo = Repository::open(path)
-                .map(|repository| Self { repository })
-                .with_context(|| format!("Failed to open repository {:?}", path));
-            match repo {
+            match Repository::open(path)
+                .map(|repository| Self { repository_identifier: repository_identifier.clone(), repository })
+                .with_context(|| format!("Failed to open repository {:?}", path))
+            {
                 Ok(mut rep) => {
                     log::info!("Repository opened: {:?}", path);
                     rep.update()?;
@@ -25,7 +26,7 @@ impl Repo {
                 Err(e) => {
                     log::warn!("Failed to open repository: {:?}", e);
                     log::info!("Trying to clone repository from {}", repository_url);
-                    let result = Self::clone_repository(repository_url, path);
+                    let result = Self::clone_repository(repository_identifier, repository_url, path);
                     log::info!("Repository cloned. Ok?:{:?}", result.is_ok());
                     result
                 }
@@ -35,11 +36,11 @@ impl Repo {
                 "Trying to clone repository from {repository_url} to {:?}",
                 path
             );
-            Repo::clone_repository(repository_url, path)
+            Repo::clone_repository(repository_identifier, repository_url, path)
         }
     }
 
-    fn clone_repository(url: &str, path: &Path) -> anyhow::Result<Self> {
+    fn clone_repository(repository_identifier: String, url: &str, path: &Path) -> anyhow::Result<Self> {
         let mut fetch_options = FetchOptions::new();
         fetch_options.download_tags(git2::AutotagOption::All);
 
@@ -49,19 +50,11 @@ impl Repo {
             .fetch_options(fetch_options)
             .with_checkout(checkout_builder);
 
-        let repo = builder
+        let repository = builder
             .clone(url, path)
             .with_context(|| format!("Failed to clone repository from {} to {:?}", url, path))?;
 
-        Ok(Self { repository: repo })
-    }
-
-    pub fn open(path: &str) -> Self {
-        let repository = Repository::open(path)
-            .context(format!("failed to open repository\nPath: {}", path))
-            .expect("failed to open repository");
-        log::debug!("Repository opened: {:?}", repository.path());
-        Self { repository }
+        Ok(Self { repository_identifier, repository })
     }
 
     pub fn update(&self) -> anyhow::Result<()> {

@@ -18,8 +18,10 @@ use octocrab::models::IssueState;
 use octocrab::models::timelines::TimelineEvent;
 use octocrab::pulls::ListPullRequestsBuilder;
 use octocrab::repos::ListPullsBuilder;
+use serde::Serialize;
 
 pub struct GitHubApi {
+    repository_identifier: String,
     owner: String,
     repository: String,
     octocrab: Octocrab,
@@ -28,9 +30,10 @@ pub struct GitHubApi {
 impl GitHubApi {
     /// Create a new GitHubApi instance
     /// * token - GitHub personal access token
-    pub fn new(owner: String, repository: String, token: SecretString) -> anyhow::Result<Self> {
+    pub fn new(repository_identifier: String, owner: String, repository: String, token: SecretString) -> anyhow::Result<Self> {
         let octocrab = Octocrab::builder().personal_token(token).build()?;
         Ok(Self {
+            repository_identifier,
             owner,
             repository,
             octocrab,
@@ -129,7 +132,7 @@ impl GitHubApi {
                             log::debug!("Processing page {page}");
                             log::debug!("Found {} issues", response.items.len());
                             log::debug!("Last PR updated at: {}",issue.updated_at.naive_utc());
-                            parse_issues(&mut parsed_issues, &mut parsed_users, response);
+                            self.parse_issues(&mut parsed_issues, &mut parsed_users, response);
                             page += 1;
                         }
                     }
@@ -178,7 +181,7 @@ impl GitHubApi {
                                 break;
                             }
 
-                            parse_issues(&mut parsed_issues, &mut parsed_users, pr);
+                            self.parse_issues(&mut parsed_issues, &mut parsed_users, pr);
                         }
                         bar.finish_with_message("Done");
                         Ok(())
@@ -196,7 +199,9 @@ impl GitHubApi {
         sync_mode: SyncMode,
     ) -> anyhow::Result<(Vec<PrEvent>, Vec<team_member::Contributor>)> {
         // check how many prs are there in total
-        let pr = self.pr_request(state, 1, async |req| { req.send().await })
+        let pr = self.pr_request(state, 1,
+                                 async |req| { req.send().await },
+        )
             .await
             .context(format!("Failed to get pull requests for {}/{}", self.owner, self.repository))?;
 
@@ -230,12 +235,10 @@ impl GitHubApi {
                         }
                         pr => {
                             log::debug!("Processing page {page}");
+                            log::debug!("Number of pages: {}", response.number_of_pages().unwrap_or(0));
                             log::debug!("Found {} pull requests", response.items.len());
-                            log::debug!(
-                                "Last PR updated at: {}",
-                                pr.updated_at.unwrap_or(pr.created_at.unwrap())
-                            );
-                            parse_prs(&mut parsed_prs, &mut parsed_users, response);
+                            log::debug!("Last PR updated at: {}", pr.updated_at.unwrap_or(pr.created_at.unwrap()));
+                            self.parse_prs(&mut parsed_prs, &mut parsed_users, response);
                             page += 1;
                         }
                     }
@@ -288,7 +291,7 @@ impl GitHubApi {
                                 break;
                             }
 
-                            parse_prs(&mut parsed_prs, &mut parsed_users, pr);
+                            self.parse_prs(&mut parsed_prs, &mut parsed_users, pr);
                         }
                         bar.finish_with_message("Done");
                         Ok(())
@@ -390,81 +393,100 @@ impl GitHubApi {
 
         f(req).await
     }
-}
 
 
-fn parse_prs(
-    parsed_prs: &mut Vec<PrEvent>,
-    parsed_users: &mut Vec<team_member::Contributor>,
-    pr: octocrab::Page<octocrab::models::pulls::PullRequest>,
-) {
-    for pr in pr.items {
-        parsed_users.push(team_member::Contributor::from(*pr.user.clone().expect("No user in Contributor")));
+    fn parse_prs(
+        &self,
+        parsed_prs: &mut Vec<PrEvent>,
+        parsed_users: &mut Vec<team_member::Contributor>,
+        pr: octocrab::Page<octocrab::models::pulls::PullRequest>,
+    ) {
+        for pr in pr.items {
+            parsed_users.push(team_member::Contributor::from(*pr.user.clone().expect("No user in Contributor")));
 
-        let parsed = PrEvent {
-            pr_number: pr.number as i64,
-            author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
-            state: match (pr.state, pr.merged_at, pr.labels) {
-                (Some(IssueState::Open), _, Some(labels)) => PullRequestStatus::find_status(
-                    labels
-                        .into_iter()
-                        .map(|label| label.name.to_string())
-                        .collect::<Vec<String>>(),
-                    pr.created_at.expect("Missing created time"),
-                    None,
-                )
-                    .unwrap_or(PullRequestStatus::Open {
+            let parsed = PrEvent {
+                repository: self.repository_identifier.clone(),
+                pr_number: pr.number as i64,
+                author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
+                state: match (pr.state, pr.merged_at, pr.labels) {
+                    (Some(IssueState::Open), _, Some(labels)) => PullRequestStatus::find_status(
+                        labels
+                            .into_iter()
+                            .map(|label| label.name.to_string())
+                            .collect::<Vec<String>>(),
+                        pr.created_at.expect("Missing created time"),
+                        None,
+                    )
+                        .unwrap_or(PullRequestStatus::Open {
+                            time: pr.created_at.expect("Missing created time"),
+                        }),
+                    (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                         time: pr.created_at.expect("Missing created time"),
-                    }),
-                (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
-                    time: pr.created_at.expect("Missing created time"),
-                },
-                (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
-                    time: pr.closed_at.expect("Missing closed time"),
-                },
-                (Some(IssueState::Closed), Some(_), _) => {
-                    PullRequestStatus::Merged {
-                        merge_sha: pr
-                            .merge_commit_sha
-                            .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
-                            .unwrap_or_else(|| {
-                                //panic!("Missing merge commit SHA {:#?} ", debug_pr)
-                                Some("NONE".to_string())
-                            })
-                            .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
-                        time: pr.merged_at.expect("Missing merge time"),
+                    },
+                    (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
+                        time: pr.closed_at.expect("Missing closed time"),
+                    },
+                    (Some(IssueState::Closed), Some(_), _) => {
+                        PullRequestStatus::Merged {
+                            merge_sha: pr
+                                .merge_commit_sha
+                                .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
+                                .unwrap_or_else(|| {
+                                    //panic!("Missing merge commit SHA {:#?} ", debug_pr)
+                                    Some("NONE".to_string())
+                                })
+                                .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
+                            time: pr.merged_at.expect("Missing merge time"),
+                        }
                     }
-                }
-                (s, merged_at, labels) => {
-                    panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
-                }
-            },
-        };
-        parsed_prs.push(parsed);
+                    (s, merged_at, labels) => {
+                        panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
+                    }
+                },
+            };
+            parsed_prs.push(parsed);
+        }
     }
-}
 
-fn parse_issues(
-    parsed_prs: &mut Vec<crate::db::model::issue::Issue>,
-    parsed_users: &mut Vec<team_member::Contributor>,
-    pr: octocrab::Page<octocrab::models::issues::Issue>,
-) {
-    for issue in pr.items {
-        parsed_users.push(team_member::Contributor::from(issue.user.clone()));
+    fn parse_issues(
+        &self,
+        parsed_prs: &mut Vec<crate::db::model::issue::Issue>,
+        parsed_users: &mut Vec<team_member::Contributor>,
+        pr: octocrab::Page<octocrab::models::issues::Issue>,
+    ) {
+        for issue in pr.items {
+            parsed_users.push(team_member::Contributor::from(issue.user.clone()));
 
-        for label in issue.labels {
-            log::debug!("Issue #{} label: {}", issue.number, label.name);
+            let mut labels = vec![];
+            for label in issue.labels {
+                log::debug!("Issue #{} label: {}", issue.number, label.name);
+                labels.push(crate::db::model::issue::IssueLabel {
+                    label: label.name,
+                    timestamp: issue.created_at.naive_utc(),
+                    action: crate::db::model::issue::LabelEventAction::Added,
+                });
+            }
+
             let parsed = crate::db::model::issue::Issue {
+                repository: self.repository_identifier.clone(),
                 issue_number: issue.number as i64,
                 author_id: issue.user.id.0 as i64,
                 timestamp: issue.created_at.naive_utc(),
-                label: label.name.to_string(),
-                action: crate::db::model::issue::LabelEventAction::Added,
+                labels_history: labels,
+                states_history: vec![crate::db::model::issue::IssueState {
+                    state: match issue.state {
+                        IssueState::Open => { "open".to_string() }
+                        IssueState::Closed => { "closed".to_string() },
+                        _ => { panic!("Invalid issue state: {:?}", issue.state) }
+                    },
+                    timestamp: issue.created_at.naive_utc(),
+                }],
             };
             parsed_prs.push(parsed);
         }
     }
 }
+
 
 #[derive(Clone)]
 pub enum SyncMode {

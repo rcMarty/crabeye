@@ -99,7 +99,7 @@ kind = EXCLUDED.kind
 
             sqlx::query!(
                 r#"
-INSERT INTO contributors_teams (github_id,team)
+INSERT INTO contributors_teams (contributor_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
 "#,
                 &member_id,
@@ -142,14 +142,15 @@ where not exists (select 1 from contributors where github_id = $1);
 
         sqlx::query!(
             r#"
-INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, contributor_id)
-VALUES ($1,$2,$3,$4,$5)
-ON CONFLICT(pr) DO UPDATE SET
+INSERT INTO pull_requests (repository, pr,current_state, timestamp, merge_sha, contributor_id)
+VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT(repository,pr) DO UPDATE SET
 current_state = excluded.current_state,
     timestamp = excluded.timestamp,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
 "#,
+            event.repository,
             event.pr_number,
             &event.state as &PullRequestStatus,
             timestamp,
@@ -161,9 +162,11 @@ current_state = excluded.current_state,
 
         sqlx::query!(
             r#"
-INSERT INTO pr_state_history (pr, state,timestamp, merge_sha)
-VALUES ($1,$2,$3,$4)
+INSERT INTO pr_state_history (repository,pr, state,timestamp, merge_sha)
+VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT (repository,pr,timestamp) DO NOTHING
 "#,
+            event.repository,
             event.pr_number,
             event.state.as_str(),
             timestamp,
@@ -192,6 +195,7 @@ VALUES ($1,$2,$3,$4)
     pub async fn insert_pr_events(&self, events: &[PrEvent]) -> Result<()> {
         let events = Self::latest_pr_events(events);
 
+        let mut repositories = Vec::with_capacity(events.len());
         let mut prs = Vec::with_capacity(events.len());
         let mut states = Vec::with_capacity(events.len());
         let mut timestamps = Vec::with_capacity(events.len());
@@ -199,7 +203,8 @@ VALUES ($1,$2,$3,$4)
         let mut author_ids = Vec::with_capacity(events.len());
 
         for event in events.iter() {
-            let (pr, state_str, timestamp, merge_sha, author_id) = event.prepare_for_db();
+            let (repo, pr, state_str, timestamp, merge_sha, author_id) = event.prepare_for_db();
+            repositories.push(repo);
             prs.push(pr);
             states.push(state_str);
             timestamps.push(timestamp);
@@ -209,15 +214,16 @@ VALUES ($1,$2,$3,$4)
 
         sqlx::query!(
             r#"
-INSERT INTO pull_requests (pr,current_state, timestamp, merge_sha, contributor_id)
-SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TIMESTAMP[], $4::TEXT[], $5::BIGINT[])
-         as t(pr, current_state, timestamp, merge_sha, contributor_id)
-ON CONFLICT(pr) DO UPDATE SET
+INSERT INTO pull_requests (repository, pr,current_state, timestamp, merge_sha, contributor_id)
+SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $6::BIGINT[])
+         as t(repository, pr, current_state, timestamp, merge_sha, contributor_id)
+ON CONFLICT(repository,pr) DO UPDATE SET
 current_state = excluded.current_state,
     timestamp = excluded.timestamp,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
 "#,
+            &repositories as &[&str],
             &prs,
             &states as &[&str],
             &timestamps,
@@ -229,11 +235,12 @@ current_state = excluded.current_state,
 
         sqlx::query!(
             r#"
-INSERT INTO pr_state_history (pr, state,timestamp, merge_sha)
-SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TIMESTAMP[], $4::TEXT[])
-         as t(pr, state, timestamp, merge_sha)
-ON CONFLICT (timestamp) DO NOTHING
+INSERT INTO pr_state_history (repository,pr, state,timestamp, merge_sha)
+SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[])
+         as t(repository, pr, state, timestamp, merge_sha)
+ON CONFLICT (repository,pr,timestamp) DO NOTHING
 "#,
+            &repositories as &[&str],
             &prs,
             &states as &[&str],
             &timestamps,
@@ -248,9 +255,10 @@ ON CONFLICT (timestamp) DO NOTHING
         let user_id = activity.user_id;
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, contributor_id, timestamp)
-VALUES ($1,$2,$3,$4)
+INSERT INTO file_activity(repository, pr, file_path, contributor_id, timestamp)
+VALUES ($1,$2,$3,$4, $5)
                "#,
+            activity.repository,
             activity.pr,
             activity.file_path,
             user_id,
@@ -262,6 +270,7 @@ VALUES ($1,$2,$3,$4)
     }
 
     pub async fn insert_file_activities(&self, activities: &[FileActivity]) -> Result<()> {
+        let repositories = activities.iter().map(|activity| activity.repository.as_str()).collect::<Vec<_>>();
         let user_ids = activities.iter().map(|activity| activity.user_id).collect::<Vec<_>>();
         let prs = activities.iter().map(|activity| activity.pr).collect::<Vec<_>>();
         let file_paths = activities.iter().map(|activity| activity.file_path.as_str()).collect::<Vec<_>>();
@@ -269,10 +278,11 @@ VALUES ($1,$2,$3,$4)
 
         sqlx::query!(
             r#"
-INSERT INTO file_activity(pr, file_path, contributor_id, timestamp)
-SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::BIGINT[], $4::TIMESTAMP[])
-as t(pr, file_path, user_login, timestamp)
+INSERT INTO file_activity(repository, pr, file_path, contributor_id, timestamp)
+SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::BIGINT[], $5::TIMESTAMP[])
+as t(repository, pr, file_path, user_login, timestamp)
                "#,
+            &repositories as &[&str],
             &prs,
             &file_paths as &[&str],
             &user_ids,
@@ -284,21 +294,22 @@ as t(pr, file_path, user_login, timestamp)
     }
 
     pub async fn insert_issues_event(&self, event: &[model::issue::Issue]) -> Result<()> {
-        sqlx::query!(
-            r#"
-INSERT INTO issues_state_history (issue, contributor_id,timestamp, label, label_event)
-SELECT * FROM UNNEST($1::BIGINT[], $2::BIGINT[], $3::TIMESTAMP[], $4::TEXT[], $5::TEXT[])
-         as t(issue, contributor_id, timestamp, label, label_event)
-ON CONFLICT (timestamp, label, label_event, issue) DO NOTHING
-"#,
-            &prs,
-            &states as &[&str],
-            &timestamps,
-            &merge_shas as &[Option<String>]
-        )
-            .execute(&self.pool)
-            .await?;
 
+        //         sqlx::query!(
+        //             r#"
+        // INSERT INTO issues_state_history (issue, contributor_id,timestamp, label, label_event)
+        // SELECT * FROM UNNEST($1::BIGINT[], $2::BIGINT[], $3::TIMESTAMP[], $4::TEXT[], $5::TEXT[])
+        //          as t(issue, contributor_id, timestamp, label, label_event)
+        // ON CONFLICT (timestamp, label, label_event, issue) DO NOTHING
+        // "#,
+        //             &prs,
+        //             &states as &[&str],
+        //             &timestamps,
+        //             &merge_shas as &[Option<String>],
+        //             &aa
+        //         )
+        //             .execute(&self.pool)
+        //             .await?;
 
         Ok(())
     }

@@ -25,9 +25,10 @@ CREATE TABLE teams
 
 CREATE TABLE contributors_teams
 (
-    github_id BIGINT NOT NULL,
-    team      TEXT   NOT NULL REFERENCES teams (team),
-    PRIMARY KEY (github_id, team)
+    team           TEXT   NOT NULL REFERENCES teams (team),
+    contributor_id BIGINT NOT NULL,
+
+    PRIMARY KEY (team, contributor_id)
 );
 
 CREATE TABLE contributors
@@ -37,47 +38,95 @@ CREATE TABLE contributors
     name        TEXT
 );
 
-CREATE TABLE pull_requests
+
+CREATE TABLE issues
 (
-    pr             BIGINT PRIMARY KEY,
-    contributor_id BIGINT NOT NULL REFERENCES contributors (github_id),
-    current_state  TEXT   NOT NULL,
-    merge_sha      TEXT,
-    timestamp      TIMESTAMP
+    repository     TEXT      NOT NULL,
+    issue          BIGINT,
+
+    contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
+    current_state  TEXT      NOT NULL,
+    timestamp      TIMESTAMP NOT NULL,
+
+    PRIMARY KEY (repository, issue)
+);
+
+CREATE TABLE issue_state_history
+(
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    issue      BIGINT    NOT NULL,
+
+    state      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
+);
+
+CREATE TABLE issue_labels_history
+(
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    issue      BIGINT    NOT NULL,
+
+    label      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+    action     TEXT CHECK ( action IN ('ADDED', 'REMOVED') ),
+
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
 );
 
 
-CREATE TABLE issues_state_history
+CREATE TABLE pull_requests
 (
-    id             SERIAL PRIMARY KEY,
-    issue          BIGINT,
-    contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
-    timestamp      TIMESTAMP NOT NULL,
-    label          TEXT,
-    label_event    TEXT CHECK ( label_event IN ('added', 'removed')),
-    state          TEXT
+    repository     TEXT   NOT NULL,
+    pr             BIGINT NOT NULL,
+
+    contributor_id BIGINT NOT NULL REFERENCES contributors (github_id),
+    current_state  TEXT   NOT NULL,
+    merge_sha      TEXT,
+    timestamp      TIMESTAMP,
+
+    PRIMARY KEY (repository, pr)
 );
 
 CREATE TABLE pr_state_history
 (
-    id        SERIAL PRIMARY KEY,
-    pr        BIGINT    NOT NULL REFERENCES pull_requests (pr),
-    state     TEXT      NOT NULL,
-    timestamp TIMESTAMP NOT NULL,
-    merge_sha TEXT
---     CHECK (
---         (state = 'merged' AND merge_sha IS NOT NULL) OR
---         (state <> 'merged' AND merge_sha IS NULL)
---         )
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    pr         BIGINT    NOT NULL,
+
+    state      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+    merge_sha  TEXT,
+
+    FOREIGN KEY (repository, pr) REFERENCES pull_requests (repository, pr)
+
 );
 
+CREATE TABLE pr_labels_history
+(
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    pr         BIGINT    NOT NULL,
+
+    label      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+    action     TEXT CHECK ( action IN ('ADDED', 'REMOVED') ),
+
+    FOREIGN KEY (repository, pr) REFERENCES pull_requests (repository, pr)
+);
 
 CREATE TABLE file_activity
 (
     id             SERIAL PRIMARY KEY,
-    pr             BIGINT    NOT NULL, -- REFERENCES pull_requests (pr),
+    repository     TEXT      NOT NULL,
+    pr             BIGINT    NOT NULL,
+
     file_path      TEXT      NOT NULL,
     contributor_id BIGINT    NOT NULL,
     activity_type  TEXT,
-    timestamp      TIMESTAMP NOT NULL
+    timestamp      TIMESTAMP NOT NULL,
+
+    FOREIGN KEY (repository, pr) REFERENCES pull_requests (repository, pr)
 );

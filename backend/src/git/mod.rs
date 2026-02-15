@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
@@ -17,6 +18,7 @@ pub struct Analyze {
     pub repo: Repo,
     github: GitHubApi,
     pub database: Database,
+    log_messages: Mutex<Vec<String>>,
 }
 
 impl Analyze {
@@ -27,15 +29,17 @@ impl Analyze {
         database: Database,
     ) -> Self {
         let repo = Repo::init(
-            Analyze::url(repository_name.clone(), owner.clone()).as_str(),
+            Self::repository_identifier(repository_name.clone(), owner.clone()),
+            Self::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
             .unwrap();
-        let github = GitHubApi::new(owner, repository_name, token).unwrap();
+        let github = GitHubApi::new(Self::repository_identifier(repository_name.clone(), owner.clone()), owner, repository_name, token).unwrap();
         Self {
             repo,
             github,
             database,
+            log_messages: Mutex::new(vec![]),
         }
     }
 
@@ -43,7 +47,11 @@ impl Analyze {
         "https://github.com/".to_owned() + owner.as_str() + "/" + repository_name.as_str()
     }
 
-    fn log_duration(start: DateTime<Utc>, end: DateTime<Utc>, message: &str) {
+    fn repository_identifier(repository_name: String, owner: String) -> String {
+        owner + "/" + repository_name.as_str()
+    }
+
+    fn log_duration(&self, start: DateTime<Utc>, end: DateTime<Utc>, message: &str) {
         let duration_ms = end.signed_duration_since(start).num_milliseconds();
         let duration_secs = duration_ms / 1000;
         let ms = duration_ms % 1000;
@@ -64,6 +72,7 @@ impl Analyze {
             ),
         };
         log::info!("{} took: {}", message, format);
+        self.log_messages.lock().unwrap().push(format!("{} took: {}", message, format));
     }
 
     pub async fn analyze(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
@@ -82,13 +91,14 @@ impl Analyze {
         if let Err(res) = self.database.upsert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
-        Self::log_duration(timestamp_start, Utc::now(), "Upserting users from github: ");
+        self.log_duration(timestamp_start, Utc::now(), "Upserting users from github: ");
 
 
         self.analyze_prs(sync_mode.clone()).await?;
         // self.analyze_issues(sync_mode).await?;
 
-        Self::log_duration(overall_time, Utc::now(), "Overall getting resources: ");
+        self.log_messages.lock().unwrap().iter().for_each(|msg| { log::info!("{}", msg) });
+        self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
         Ok(())
     }
     pub async fn analyze_prs(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
@@ -96,7 +106,7 @@ impl Analyze {
 
         // pr section
         let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
-        Self::log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
+        self.log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
 
         // insert non existing contributors
         log::info!(
@@ -105,7 +115,7 @@ impl Analyze {
         );
         timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
-        Self::log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
+        self.log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
 
 
         timestamp_start = Utc::now();
@@ -152,6 +162,7 @@ impl Analyze {
                     let file_activities: Vec<FileActivity> = files
                         .iter()
                         .map(|file| FileActivity {
+                            repository: self.repo.repository_identifier.clone(),
                             pr: pr.pr_number,
                             file_path: file.clone(),
                             user_id: pr.author_id,
@@ -167,7 +178,7 @@ impl Analyze {
         )
             .await?;
 
-        Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
+        self.log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Ok(())
     }
 
@@ -176,7 +187,7 @@ impl Analyze {
 
         // pr section
         let (issues, contributors) = self.github.get_issues(State::All, sync_mode).await?;
-        Self::log_duration(timestamp_start, Utc::now(), "Getting issues: ");
+        self.log_duration(timestamp_start, Utc::now(), "Getting issues: ");
 
         // insert non existing contributors
         log::info!(
@@ -185,7 +196,7 @@ impl Analyze {
         );
         timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
-        Self::log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
+        self.log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
 
 
         timestamp_start = Utc::now();
@@ -209,7 +220,7 @@ impl Analyze {
         )
             .await?;
 
-        Self::log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
+        self.log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Ok(())
     }
 }
