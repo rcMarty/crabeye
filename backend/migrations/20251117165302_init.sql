@@ -1,21 +1,3 @@
--- TODO enum or text with check constraint
--- CREATE TYPE pr_state AS ENUM (
---     'open',
---     'closed',
---     'merged',
---     'S-waiting-on-review',
---     'S-waiting-on-bors',
---     'S-waiting-on-author'
---     );
-
--- TODO enum or text with check constraint
--- CREATE TYPE team_kind AS ENUM (
---     'team',
---     'working-group',
---     'project-group',
---     'marker-team'
---     );
-
 CREATE TABLE teams
 (
     team       TEXT PRIMARY KEY,
