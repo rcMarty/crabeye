@@ -105,7 +105,7 @@ FROM (
          WHERE issue = 8412 and repository = 'rust-lang/rust'
          ORDER BY issue, label, timestamp DESC
          -- dej mi jen poslední záznamy podle mimo jiné timestamp pro každou kombinaci issue a label_event
-         -- (zaručeno že ten label_event bude latest)
+         -- (zaručeno že ta akce bude latest)
      ) subquery
 WHERE action = 'ADDED';
 -- jen ty co byly přidány
