@@ -251,7 +251,7 @@ impl GitHubApi {
                             log::debug!("Processing page {page}");
                             log::debug!(
                                 "Number of pages: {}",
-                                response.number_of_pages().unwrap_or(0)
+                                response.number_of_pages().unwrap_or(10)
                             );
                             log::debug!("Found {} pull requests", response.items.len());
                             log::debug!(
@@ -272,10 +272,10 @@ impl GitHubApi {
                     log::warn!("Found less than requested ({no_of_pages}) pull requests");
                     log::warn!(
                         "Number of pages will be limited to {}",
-                        pr.number_of_pages().unwrap_or(0)
+                        pr.number_of_pages().unwrap_or(10)
                     );
 
-                    pr.number_of_pages().unwrap_or(0)
+                    pr.number_of_pages().unwrap_or(10)
                 } else {
                     no_of_pages
                 };
@@ -340,7 +340,7 @@ impl GitHubApi {
             ))?;
 
 
-        let pages = response.number_of_pages().unwrap_or(0);
+        let pages = response.number_of_pages().unwrap_or(10);
 
         events.extend(response.items);
 
