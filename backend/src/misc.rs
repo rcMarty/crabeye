@@ -28,10 +28,13 @@ where
     }
 }
 
-pub async fn with_progress_bar_async<F, T>(total: usize, message: String, process: F) -> anyhow::Result<T>
+pub async fn with_progress_bar_async<F, T>(
+    total: usize,
+    message: String,
+    process: F,
+) -> anyhow::Result<T>
 where
     F: AsyncFnOnce(&indicatif::ProgressBar) -> anyhow::Result<T>,
-
 {
     let multi = MULTI_PROGRESS_BAR.clone();
     let bar = multi.add(indicatif::ProgressBar::new(total as u64));

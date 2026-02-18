@@ -109,3 +109,18 @@ FROM (
      ) subquery
 WHERE action = 'ADDED';
 -- jen ty co byly přidány
+
+
+
+select issue as pr_id, file_path, github_id, github_name, name
+from file_activity
+         join contributors c on file_activity.contributor_id = c.github_id
+where contributor_id = ANY(123457)
+  and timestamp between '2024-01-01' and '2026-01-01'
+order by timestamp DESC
+LIMIT 100 ;
+
+
+SELECT MAX(timestamp) as timestamp
+FROM issue_state_history
+WHERE is_pr = true

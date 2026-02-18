@@ -1,18 +1,20 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
 use chrono::{NaiveDate, NaiveDateTime};
+use git2::Repository;
 
 pub mod app_state;
 pub mod docs;
 pub mod review;
 pub mod webhooks;
 
-
 /// Optional pagination parameters
 /// Used in multiple endpoints
 /// If pagination is not provided, defaults are used
 /// See Pagination struct for details
 #[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone)]
-pub struct OptPagination {
+pub struct WaitingForReviewParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     pub pagination: Option<Pagination>,
 }
 /// Common pagination parameters
@@ -52,6 +54,8 @@ impl Pagination {
 /// Parameters for getting reviews for a specific file
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct ReviewParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    repository: String,
     /// File path to filter reviews, example = "src/lib.rs", exmple = "src/"
     file: String,
     ///Number of days to look back, default 7, example = 30
@@ -65,18 +69,21 @@ pub struct ReviewParams {
 /// Parameters for getting top N files modified by a user
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct PrTopFilesParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     /// User ID to get top files for
     pub name: String,
     /// Number of top files to return
     pub top_n: i64,
     /// Duration in days to look back, default is 10 days
     pub duration: Option<i64>,
-
 }
 
 /// Parameters for getting PR count by status
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub struct PrCountParams {
+    /// Repository identifier to filter PRs, example = "owner/repo"
+    pub repository: String,
     /// Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD
     pub timestamp: Option<NaiveDate>,
     /// Status of the pull requests to filter by
@@ -86,6 +93,8 @@ pub struct PrCountParams {
 /// Parameters for getting PR state at a specific timestamp
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub struct PrStateParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     /// Pull request number
     pub pr: i64,
     /// Timestamp to get the PR state at, format: YYYY-MM-DD

@@ -13,7 +13,7 @@ impl StateMonitor {
         Self { interval }
     }
 
-    pub async fn run(self, analyze: &Analyze) {
+    pub async fn run(self, analyze: &Analyze, repo: &str) {
         let mut interval = time::interval(self.interval);
         loop {
             interval.tick().await;
@@ -29,7 +29,7 @@ impl StateMonitor {
             }
 
             // download form github
-            let from: NaiveDateTime = match analyze.database.get_last_pr_event_timestamp().await {
+            let from: NaiveDateTime = match analyze.database.get_last_pr_event_timestamp(repo).await {
                 Ok(Some(ts)) => ts,
                 Ok(None) => {
                     log::info!("No previous PR events found, starting from the beginning");

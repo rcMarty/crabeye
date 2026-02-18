@@ -72,5 +72,3 @@ pub fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
 async fn serve_docs(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
     Json(api).into_response()
 }
-
-

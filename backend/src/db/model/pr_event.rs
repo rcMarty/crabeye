@@ -1,3 +1,4 @@
+use crate::db::model::issue::{IssueLabel, IssueState};
 use crate::db::model::team_member::TeamMember;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,8 @@ pub struct PrEvent {
     pub pr_number: i64,
     pub author_id: i64,
     pub state: PullRequestStatus,
+    pub states_history: Option<Vec<IssueState>>,
+    pub labels_history: Option<Vec<IssueLabel>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -35,15 +38,6 @@ pub enum PullRequestStatus {
         merge_sha: String,
         time: DateTime<Utc>,
     },
-    Pushed {
-        time: DateTime<Utc>,
-    },
-    Commented {
-        time: DateTime<Utc>,
-    },
-    Reviewed {
-        time: DateTime<Utc>,
-    },
 }
 
 /// Represents a request to filter pull requests by their status in API calls
@@ -55,15 +49,13 @@ pub enum PullRequestStatusRequest {
     Open,
     Closed,
     Merged,
-    Pushed,
-    Commented,
-    Reviewed,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let state: String = row.try_get("state")?;
-        let timestamp: DateTime<Utc> = DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
+        let timestamp: DateTime<Utc> =
+            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
         let merge_sha: Option<String> = row.try_get("merge_sha")?;
 
         match state.as_str() {
@@ -71,22 +63,23 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
             "closed" => Ok(PullRequestStatus::Closed { time: timestamp }),
             "merged" => {
                 if let Some(merge_sha) = merge_sha {
-                    Ok(PullRequestStatus::Merged { merge_sha, time: timestamp })
+                    Ok(PullRequestStatus::Merged {
+                        merge_sha,
+                        time: timestamp,
+                    })
                 } else {
-                    Err(sqlx::Error::Decode("Merge SHA is required for merged state".into()))
+                    Err(sqlx::Error::Decode(
+                        "Merge SHA is required for merged state".into(),
+                    ))
                 }
             }
             "S-waiting-on-review" => Ok(PullRequestStatus::WaitingForReview { time: timestamp }),
             "S-waiting-on-bors" => Ok(PullRequestStatus::WaitingForBors { time: timestamp }),
             "S-waiting-on-author" => Ok(PullRequestStatus::WaitingForAuthor { time: timestamp }),
-            "pushed" => Ok(PullRequestStatus::Pushed { time: timestamp }),
-            "commented" => Ok(PullRequestStatus::Commented { time: timestamp }),
-            "reviewed" => Ok(PullRequestStatus::Reviewed { time: timestamp }),
             _ => Err(sqlx::Error::Decode("Invalid state".into())),
         }
     }
 }
-
 
 impl Display for PullRequestStatusRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -98,10 +91,6 @@ impl Display for PullRequestStatusRequest {
             PullRequestStatusRequest::Open => "open",
             PullRequestStatusRequest::Closed => "closed",
             PullRequestStatusRequest::Merged => "merged",
-
-            PullRequestStatusRequest::Pushed => "pushed",
-            PullRequestStatusRequest::Commented => "commented",
-            PullRequestStatusRequest::Reviewed => "reviewed",
         };
         write!(f, "{}", state_str)
     }
@@ -123,10 +112,6 @@ impl PrEvent {
             PullRequestStatus::Closed { time } => *time,
             PullRequestStatus::Merged { time, .. } => *time,
 
-            PullRequestStatus::Pushed { time } => *time,
-            PullRequestStatus::Commented { time } => *time,
-            PullRequestStatus::Reviewed { time } => *time,
-
             PullRequestStatus::WaitingForReview { time } => *time,
             PullRequestStatus::WaitingForBors { time } => *time,
             PullRequestStatus::WaitingForAuthor { time } => *time,
@@ -138,19 +123,6 @@ impl PrEvent {
             PullRequestStatus::Merged { merge_sha, .. } => Some(merge_sha.clone()),
             _ => None,
         }
-    }
-
-    /// Prepare the PrEvent for database insertion
-    /// Returns a tuple of (pr_number, state as string, timestamp, merge_sha, author_id)
-    pub fn prepare_for_db(&self) -> (&str, i64, &str, NaiveDateTime, Option<String>, i64) {
-        let repository = self.repository.as_str();
-        let pr_number = self.pr_number;
-        let state_str = self.state.as_str();
-        let timestamp = self.get_timestamp().naive_utc();
-        let merge_sha = self.get_merge_sha();
-        let author_id = self.author_id;
-
-        (repository, pr_number, state_str, timestamp, merge_sha, author_id)
     }
 }
 
@@ -170,10 +142,6 @@ impl Display for PrEvent {
                 PullRequestStatus::WaitingForReview { time } => time,
                 PullRequestStatus::WaitingForBors { time } => time,
                 PullRequestStatus::WaitingForAuthor { time } => time,
-
-                PullRequestStatus::Pushed { time } => time,
-                PullRequestStatus::Commented { time } => time,
-                PullRequestStatus::Reviewed { time } => time,
             }
         )
     }
@@ -200,10 +168,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
             "S-waiting-on-bors" => PullRequestStatus::WaitingForBors { time: timestamp },
             "S-waiting-on-author" => PullRequestStatus::WaitingForAuthor { time: timestamp },
 
-            "pushed" => PullRequestStatus::Pushed { time: timestamp },
-            "commented" => PullRequestStatus::Commented { time: timestamp },
-            "reviewed" => PullRequestStatus::Reviewed { time: timestamp },
-
             _ => return Err(sqlx::Error::Decode("Invalid state".into())),
         };
 
@@ -212,16 +176,14 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
             pr_number,
             author_id,
             state: status,
+            states_history: None,
+            labels_history: None,
         })
     }
 }
 
 impl PullRequestStatus {
-    pub fn from_str(
-        value: &str,
-        time: DateTime<Utc>,
-        merge_sha: Option<String>,
-    ) -> Option<Self> {
+    pub fn from_str(value: &str, time: DateTime<Utc>, merge_sha: Option<String>) -> Option<Self> {
         match value {
             "open" => Some(PullRequestStatus::Open { time }),
             "closed" => Some(PullRequestStatus::Closed { time }),
@@ -235,10 +197,6 @@ impl PullRequestStatus {
             "S-waiting-on-review" => Some(PullRequestStatus::WaitingForReview { time }),
             "S-waiting-on-bors" => Some(PullRequestStatus::WaitingForBors { time }),
             "S-waiting-on-author" => Some(PullRequestStatus::WaitingForAuthor { time }),
-
-            "pushed" => Some(PullRequestStatus::Pushed { time }),
-            "commented" => Some(PullRequestStatus::Commented { time }),
-            "reviewed" => Some(PullRequestStatus::Reviewed { time }),
             _ => None,
         }
     }
@@ -252,10 +210,6 @@ impl PullRequestStatus {
             PullRequestStatus::WaitingForReview { .. } => "S-waiting-on-review",
             PullRequestStatus::WaitingForBors { .. } => "S-waiting-on-bors",
             PullRequestStatus::WaitingForAuthor { .. } => "S-waiting-on-author",
-
-            PullRequestStatus::Pushed { .. } => "pushed",
-            PullRequestStatus::Commented { .. } => "commented",
-            PullRequestStatus::Reviewed { .. } => "reviewed",
         }
     }
 

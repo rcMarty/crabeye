@@ -1,51 +1,105 @@
--- HISTORY TABLES: To quickly find history for a specific issue/PR
--- We include 'timestamp' to make the index "sorted" for free
+-- DASHBOARD: "Show me Open ISSUES for this repo, sorted by date"
+CREATE INDEX idx_issues_dashboard_state
+    ON issues (repository, current_state, timestamp DESC)
+    WHERE is_pr = false;
+
+-- DASHBOARD: "Show me Open PRS for this repo, sorted by date"
+CREATE INDEX idx_prs_dashboard_state
+    ON issues (repository, current_state, timestamp DESC)
+    WHERE is_pr = true;
+
+-- LOOKUP: "Find specific ISSUE by ID" (Optimized for filtering)
+CREATE INDEX idx_issues_lookup
+    ON issues (repository, issue)
+    WHERE is_pr = false;
+
+-- LOOKUP: "Find specific PR by ID"
+CREATE INDEX idx_prs_lookup
+    ON issues (repository, issue)
+    WHERE is_pr = true;
+
+
+-- "Show me all ISSUES created by this user"
+CREATE INDEX idx_issues_contributor_only
+    ON issues (contributor_id)
+    WHERE is_pr = false;
+
+-- "Show me all PRS created by this user"
+CREATE INDEX idx_prs_contributor_only
+    ON issues (contributor_id)
+    WHERE is_pr = true;
+
+
+-- HISTORY: "Show timeline for a specific ISSUE"
 CREATE INDEX idx_issues_history_lookup
-    ON issue_state_history (repository, issue, timestamp DESC);
+    ON issue_event_history (repository, issue, timestamp DESC)
+    WHERE is_pr = false;
 
-CREATE INDEX idx_pr_history_lookup
-    ON pr_state_history (repository, pr, timestamp DESC);
+-- HISTORY: "Show timeline for a specific PR"
+CREATE INDEX idx_prs_history_lookup
+    ON issue_event_history (repository, issue, timestamp DESC)
+    WHERE is_pr = true;
 
--- LABELS: To quickly find labels belonging to an issue/PR
+
+-- LOOKUP: "Show labels for a specific ISSUE"
 CREATE INDEX idx_issue_labels_lookup
-    ON issue_labels_history (repository, issue);
+    ON issue_labels_history (repository, issue)
+    WHERE is_pr = false;
 
+-- LOOKUP: "Show labels for a specific PR"
 CREATE INDEX idx_pr_labels_lookup
-    ON pr_labels_history (repository, pr);
+    ON issue_labels_history (repository, issue)
+    WHERE is_pr = true;
 
--- FILES: To list all files touched in a specific PR
-CREATE INDEX idx_file_activity_lookup
-    ON file_activity (repository, pr);
+-- SEARCH: "Find all ISSUES with label 'bug'"
+CREATE INDEX idx_issue_labels_name
+    ON issue_labels_history (label)
+    WHERE is_pr = false;
 
--- CONTRIBUTORS: To find all items created by a specific user
-CREATE INDEX idx_issues_contributor ON issues (contributor_id);
-CREATE INDEX idx_pr_contributor ON pull_requests (contributor_id);
-CREATE INDEX idx_file_activity_contributor ON file_activity (contributor_id);
+-- SEARCH: "Find all PRS with label 'bug'" (Rare, but useful for 'do not merge' etc.)
+CREATE INDEX idx_pr_labels_name
+    ON issue_labels_history (label)
+    WHERE is_pr = true;
+
+-- UPSERT OPTIMIZATION (Finding the latest label state)
+-- Split into two smaller indexes for faster writes/reads
+CREATE INDEX idx_issue_labels_upsert_latest
+    ON issue_labels_history (repository, issue, label, timestamp DESC, action)
+    WHERE is_pr = false;
+
+CREATE INDEX idx_pr_labels_upsert_latest
+    ON issue_labels_history (repository, issue, label, timestamp DESC, action)
+    WHERE is_pr = true;
 
 
--- DASHBOARD: "Show me Open issues for this repo, sorted by date"
--- The PK handles 'repository', but this composite index handles the rest.
-CREATE INDEX idx_issues_state_time
-    ON issues (repository, current_state, timestamp DESC);
+-- FILES: "Show changed files for this PR"
+CREATE INDEX idx_pr_file_activity_lookup
+    ON file_activity (repository, issue);
 
-CREATE INDEX idx_pr_state_time
-    ON pull_requests (repository, current_state, timestamp DESC);
-
--- LABEL SEARCH: "Find all issues with the label 'bug'"
--- Since we are searching across all repos, we index 'label' first.
-CREATE INDEX idx_issue_labels_name ON issue_labels_history (label);
-CREATE INDEX idx_pr_labels_name ON pr_labels_history (label);
-
--- USER LOOKUP: Find user by name (e.g., for autocomplete or URL lookup)
-CREATE INDEX idx_contributors_name ON contributors (github_name);
-
--- TEAM MEMBERSHIP: Reverse lookup (Find all members of a team)
--- The PK covers (contributor, team), so we need the reverse:
-CREATE INDEX idx_contributors_teams_team ON contributors_teams (team);
-
--- FILE HISTORY: "Show me history of 'src/main.rs' in this repo"
--- using varchar_pattern_ops optimizes for LIKE 'path/%' queries
-CREATE INDEX idx_file_activity_path
+-- FILE HISTORY: "Show history of 'src/main.rs'" (Likely only relevant for PRs)
+CREATE INDEX idx_pr_file_activity_path
     ON file_activity (repository, file_path varchar_pattern_ops, timestamp DESC);
 
-CREATE INDEX idx_issues_state_history_upsert ON issue_labels_history (repository, issue, label, timestamp DESC, action, issue)
+-- CONTRIBUTOR: "Show files touched by this user"
+CREATE INDEX idx_pr_file_activity_contributor
+    ON file_activity (contributor_id);
+
+
+-- USER LOOKUP: Users exist independently of issues/PRs
+CREATE INDEX idx_contributors_name ON contributors (github_name);
+
+-- TEAM MEMBERSHIP: Teams exist independently
+CREATE INDEX idx_contributors_teams_team ON contributors_teams (team);
+
+
+ALTER TABLE issue_event_history
+    ADD CONSTRAINT uq_issue_event_history_conflict
+        UNIQUE (repository, issue, timestamp);
+
+ALTER TABLE issue_labels_history
+    ADD CONSTRAINT uq_issue_labels_history_conflict
+        UNIQUE (repository, issue, label, timestamp);
+
+ALTER TABLE issues
+    ADD CONSTRAINT uq_issues_conflict
+        UNIQUE (repository, issue);

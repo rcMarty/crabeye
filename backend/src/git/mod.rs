@@ -1,4 +1,3 @@
-use std::sync::Mutex;
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
@@ -10,6 +9,7 @@ use indicatif::ProgressBar;
 use octocrab::params::State;
 use secrecy::SecretString;
 use std::path::Path;
+use std::sync::Mutex;
 
 pub mod git;
 pub mod github;
@@ -34,7 +34,13 @@ impl Analyze {
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
             .unwrap();
-        let github = GitHubApi::new(Self::repository_identifier(repository_name.clone(), owner.clone()), owner, repository_name, token).unwrap();
+        let github = GitHubApi::new(
+            Self::repository_identifier(repository_name.clone(), owner.clone()),
+            owner,
+            repository_name,
+            token,
+        )
+            .unwrap();
         Self {
             repo,
             github,
@@ -72,7 +78,10 @@ impl Analyze {
             ),
         };
         log::info!("{} took: {}", message, format);
-        self.log_messages.lock().unwrap().push(format!("{} took: {}", message, format));
+        self.log_messages
+            .lock()
+            .unwrap()
+            .push(format!("{} took: {}", message, format));
     }
 
     pub async fn analyze(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
@@ -93,11 +102,14 @@ impl Analyze {
         }
         self.log_duration(timestamp_start, Utc::now(), "Upserting users from github: ");
 
+        //self.analyze_prs(sync_mode.clone()).await?;
+        self.analyze_issues(sync_mode).await?;
 
-        self.analyze_prs(sync_mode.clone()).await?;
-        // self.analyze_issues(sync_mode).await?;
-
-        self.log_messages.lock().unwrap().iter().for_each(|msg| { log::info!("{}", msg) });
+        self.log_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .for_each(|msg| log::info!("{}", msg));
         self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
         Ok(())
     }
@@ -107,6 +119,7 @@ impl Analyze {
         // pr section
         let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
         self.log_duration(timestamp_start, Utc::now(), "Getting pull requests: ");
+        log::debug!("found {} prs", prs.len());
 
         // insert non existing contributors
         log::info!(
@@ -116,7 +129,6 @@ impl Analyze {
         timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
         self.log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
-
 
         timestamp_start = Utc::now();
 
@@ -129,7 +141,6 @@ impl Analyze {
                     bar.inc(1);
                     bar.set_message(format!("Processing PR #{}", pr.pr_number));
                     log::debug!("{}", "_".repeat(69));
-                    log::debug!("{:#?}", pr);
                     if let Err(res) = self.database.insert_pr_event(pr).await {
                         log::error!("Error when inserting pr event to database: {:?}", res);
                     }
@@ -187,6 +198,7 @@ impl Analyze {
 
         // pr section
         let (issues, contributors) = self.github.get_issues(State::All, sync_mode).await?;
+        log::debug!("found {} issues", issues.len());
         self.log_duration(timestamp_start, Utc::now(), "Getting issues: ");
 
         // insert non existing contributors
@@ -198,27 +210,11 @@ impl Analyze {
         self.database.upsert_contributors(&contributors).await?;
         self.log_duration(timestamp_start, Utc::now(), "Inserting contributors: ");
 
-
         timestamp_start = Utc::now();
 
-        // process PRs and its files and contributors
-        with_progress_bar_async(
-            issues.len(),
-            "Processing".parse()?,
-            async |bar: &ProgressBar| {
-                for issue in issues.iter() {
-                    bar.inc(1);
-                    bar.set_message(format!("Processing issue #{}", issue.issue_number));
-                    log::debug!("{}", "_".repeat(69));
-                    log::debug!("{:#?}", issue);
-                    // if let Err(res) = self.database.insert_issue_event(issue).await {
-                    //     log::error!("Error when inserting issue event to database: {:?}", res);
-                    // }
-                }
-                Ok(())
-            },
-        )
-            .await?;
+        if let Err(res) = self.database.insert_issues(issues.as_slice()).await {
+            log::error!("Error when inserting issue event to database: {:?}", res);
+        }
 
         self.log_duration(timestamp_start, Utc::now(), "Inserting to database: ");
         Ok(())

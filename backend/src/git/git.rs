@@ -11,10 +11,17 @@ pub struct Repo {
 }
 
 impl Repo {
-    pub fn init(repository_identifier: String, repository_url: &str, path: &Path) -> anyhow::Result<Self> {
+    pub fn init(
+        repository_identifier: String,
+        repository_url: &str,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
         if path.exists() {
             match Repository::open(path)
-                .map(|repository| Self { repository_identifier: repository_identifier.clone(), repository })
+                .map(|repository| Self {
+                    repository_identifier: repository_identifier.clone(),
+                    repository,
+                })
                 .with_context(|| format!("Failed to open repository {:?}", path))
             {
                 Ok(mut rep) => {
@@ -26,7 +33,8 @@ impl Repo {
                 Err(e) => {
                     log::warn!("Failed to open repository: {:?}", e);
                     log::info!("Trying to clone repository from {}", repository_url);
-                    let result = Self::clone_repository(repository_identifier, repository_url, path);
+                    let result =
+                        Self::clone_repository(repository_identifier, repository_url, path);
                     log::info!("Repository cloned. Ok?:{:?}", result.is_ok());
                     result
                 }
@@ -40,7 +48,11 @@ impl Repo {
         }
     }
 
-    fn clone_repository(repository_identifier: String, url: &str, path: &Path) -> anyhow::Result<Self> {
+    fn clone_repository(
+        repository_identifier: String,
+        url: &str,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
         let mut fetch_options = FetchOptions::new();
         fetch_options.download_tags(git2::AutotagOption::All);
 
@@ -54,7 +66,10 @@ impl Repo {
             .clone(url, path)
             .with_context(|| format!("Failed to clone repository from {} to {:?}", url, path))?;
 
-        Ok(Self { repository_identifier, repository })
+        Ok(Self {
+            repository_identifier,
+            repository,
+        })
     }
 
     pub fn update(&self) -> anyhow::Result<()> {
