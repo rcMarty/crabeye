@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-octocrab = { git = "https://github.com/XAMPPRocky/octocrab.git" } # GitHub API client
+octocrab = { git = "https://github.com/rcMarty/octocrab.git" } # GitHub API client
 git2 = "0.20.4" # Git repository management
 axum = { version = "0.8.8", features = ["macros"] }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation

@@ -123,4 +123,5 @@ LIMIT 100 ;
 
 SELECT MAX(timestamp) as timestamp
 FROM issue_state_history
-WHERE is_pr = true
+WHERE is_pr = true;
+

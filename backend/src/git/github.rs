@@ -7,7 +7,7 @@ use crate::MULTI_PROGRESS_BAR;
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Direction;
-use indicatif::ProgressBar;
+use indicatif::{MultiProgress, ProgressBar};
 use log::log;
 use octocrab::issues::ListIssuesBuilder;
 use octocrab::models::timelines::TimelineEvent;
@@ -19,6 +19,7 @@ use rust_team_data::v1::{PermissionPerson, Team};
 use secrecy::SecretString;
 use serde::Serialize;
 use std::fmt::format;
+use std::io::Write;
 
 pub struct GitHubApi {
     repository_identifier: String,
@@ -83,6 +84,15 @@ impl GitHubApi {
         Ok(authorized_users)
     }
 
+    fn append_to_file(content: &str) {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true) // Create file if it doesn't exist
+            .open("ranal_log.txt")
+            .unwrap();
+
+        file.write_all(content.as_bytes()).unwrap();
+    }
     pub async fn get_issues(
         &self,
         state: params::State,
@@ -120,18 +130,6 @@ impl GitHubApi {
                         .await
                         .context("Cannot get issues")?;
 
-                    self.octocrab
-                        .issues(self.owner.clone(), self.repository.clone())
-                        .list()
-                        .direction(params::Direction::Descending)
-                        .sort(issues::Sort::Updated)
-                        .state(state)
-                        .per_page(100)
-                        .page(page)
-                        .send()
-                        .await
-                        .context("Cannot get issues")?;
-
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
                         issue if issue.updated_at.naive_utc() < since => {
@@ -152,18 +150,20 @@ impl GitHubApi {
             }
             SyncMode::Last(no_of_pages) => {
                 log::info!("Synchronizing last {no_of_pages} pages of pull requests");
-                let pages = if issues.number_of_pages() < Some(no_of_pages) {
-                    log::warn!("Found less than requested ({no_of_pages}) pull requests");
-                    log::warn!("Number of pages will be limited to {}", issues.number_of_pages().unwrap_or(10));
-                    issues.number_of_pages().unwrap_or(10)
-                } else {
-                    no_of_pages
-                };
+                // let pages = if issues.number_of_pages() < Some(no_of_pages) {
+                //     log::warn!("Found less than requested ({no_of_pages}) pull requests");
+                //     log::warn!("Number of pages will be limited to {}", issues.number_of_pages().unwrap_or(10));
+                //     issues.number_of_pages().unwrap_or(10)
+                // } else {
+                //     no_of_pages
+                // };
+                let pages = no_of_pages;
 
                 with_progress_bar_async(
                     pages as usize,
-                    "Processing".parse()?,
-                    async |bar: &ProgressBar| {
+                    Some("Getting issues".parse()?),
+                    async |bar_opt, _multi: &MultiProgress| {
+                        let bar = bar_opt.unwrap();
                         for page in 1..=pages {
                             bar.inc(1);
                             bar.set_message(format!("Processing page {}/{}", page, pages));
@@ -282,8 +282,9 @@ impl GitHubApi {
 
                 with_progress_bar_async(
                     pages as usize,
-                    "Processing".parse()?,
-                    async |bar: &ProgressBar| {
+                    Some("Getting pull requests".parse()?),
+                    async |bar_opt, _multi: &MultiProgress| {
+                        let bar = bar_opt.unwrap();
                         for page in 1..=pages {
                             bar.inc(1);
                             bar.set_message(format!("Processing page {}/{}", page, pages));
@@ -327,7 +328,7 @@ impl GitHubApi {
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut page = 1u32;
 
-        let response = self
+        let response = match self
             .octocrab
             .issues(self.owner.clone(), self.repository.clone())
             .list_timeline_events(event_number)
@@ -337,19 +338,26 @@ impl GitHubApi {
             .context(format!(
                 "Failed to get timeline events for PR #{} in {}/{}",
                 event_number, self.owner, self.repository
-            ))?;
+            )) {
+            Ok(res) => res,
+            Err(err) => {
+                log::error!("Error getting timeline events for PR #{}: {}", event_number, err);
+                let error_message = format!("Error getting timeline events for PR #{}: {}", event_number, err);
+                Self::append_to_file(&error_message);
+                return Ok(events);
+            }
+        };
 
 
-        let pages = response.number_of_pages().unwrap_or(10);
-
-        events.extend(response.items);
-
-        if pages < 2 {
+        if response.items.len() < 100 {
+            events.extend(response.items);
             return Ok(events);
         }
 
-        for page in 2..=pages {
-            let response = self
+        events.extend(response.items);
+
+        'pageLoop: loop {
+            let response = match self
                 .octocrab
                 .issues(self.owner.clone(), self.repository.clone())
                 .list_timeline_events(event_number)
@@ -360,20 +368,26 @@ impl GitHubApi {
                 .context(format!(
                     "Failed to get timeline events for PR #{} in {}/{}",
                     event_number, self.owner, self.repository
-                ))?;
+                )) {
+                Ok(res) => res,
+                Err(err) => {
+                    log::error!("Error getting timeline events for PR #{}: {}", event_number, err);
+                    let error_message = format!("Error getting timeline events for PR #{}: {}", event_number, err);
+                    Self::append_to_file(&error_message);
+                    return Ok(events);
+                }
+            };
 
-            log::debug!("Requesting {page}/{pages} page of timeline events");
-            log::debug!("Found {} timeline events", response.items.len());
+            page += 1;
+            log::debug!("Found another {} timeline events", response.items.len());
 
             // check if there are no more events
             if response.items.is_empty() {
                 break;
             }
-            //TODO events primarily opened closed and so on
 
             events.extend(response.items);
         }
-
 
         Ok(events)
     }
@@ -408,59 +422,76 @@ impl GitHubApi {
         parsed_users: &mut Vec<team_member::Contributor>,
         pr: octocrab::Page<octocrab::models::pulls::PullRequest>,
     ) {
-        for pr in pr.items {
-            parsed_users.push(team_member::Contributor::from(
-                *pr.user.clone().expect("No user in Contributor"),
-            ));
+        with_progress_bar_async(
+            pr.items.len(),
+            None,
+            async |_bar, multi: &MultiProgress| {
+                let inner_bar = multi.add(ProgressBar::new(pr.items.len() as u64));
+                inner_bar.set_message("Processing PR events with timeline events and labels");
+                inner_bar.set_style(indicatif::ProgressStyle::default_bar()
+                                        .template("[{elapsed_precise}] {bar:40.green/cyan} {pos:>7}/{len:7} {msg}")?
+                                        .progress_chars("##-"),
+                );
 
-            let timeline = self.get_event_timeline(pr.number).await.unwrap();
-            let labels = self.get_labels(pr.number, &timeline).unwrap();
-            let states = self.get_states(pr.number, &timeline).unwrap();
+                for pr in pr.items {
+                    inner_bar.inc(1);
+                    parsed_users.push(team_member::Contributor::from(
+                        *pr.user.clone().expect("No user in Contributor"),
+                    ));
 
-            let parsed = PrEvent {
-                repository: self.repository_identifier.clone(),
-                pr_number: pr.number as i64,
-                author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
-                state: match (pr.state, pr.merged_at, pr.labels) {
-                    (Some(IssueState::Open), _, Some(labels)) => PullRequestStatus::find_status(
-                        labels
-                            .into_iter()
-                            .map(|label| label.name.to_string())
-                            .collect::<Vec<String>>(),
-                        pr.created_at.expect("Missing created time"),
-                        None,
-                    )
-                        .unwrap_or(PullRequestStatus::Open {
-                            time: pr.created_at.expect("Missing created time"),
-                        }),
-                    (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
-                        time: pr.created_at.expect("Missing created time"),
-                    },
-                    (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
-                        time: pr.closed_at.expect("Missing closed time"),
-                    },
-                    (Some(IssueState::Closed), Some(_), _) => {
-                        PullRequestStatus::Merged {
-                            merge_sha: pr
-                                .merge_commit_sha
-                                .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
-                                .unwrap_or_else(|| {
-                                    //panic!("Missing merge commit SHA {:#?} ", debug_pr)
-                                    Some("NONE".to_string())
-                                })
-                                .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
-                            time: pr.merged_at.expect("Missing merge time"),
-                        }
-                    }
-                    (s, merged_at, labels) => {
-                        panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
-                    }
-                },
-                states_history: Some(states),
-                labels_history: Some(labels),
-            };
-            parsed_prs.push(parsed);
-        }
+                    let timeline = self.get_event_timeline(pr.number).await.unwrap();
+                    let labels = self.get_labels(pr.number, &timeline).unwrap();
+                    let states = self.get_states(pr.number, &timeline).unwrap();
+
+                    let parsed = PrEvent {
+                        repository: self.repository_identifier.clone(),
+                        pr_number: pr.number as i64,
+                        author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
+                        state: match (pr.state, pr.merged_at, pr.labels) {
+                            (Some(IssueState::Open), _, Some(labels)) => PullRequestStatus::find_status(
+                                labels
+                                    .into_iter()
+                                    .map(|label| label.name.to_string())
+                                    .collect::<Vec<String>>(),
+                                pr.created_at.expect("Missing created time"),
+                                None,
+                            )
+                                .unwrap_or(PullRequestStatus::Open {
+                                    time: pr.created_at.expect("Missing created time"),
+                                }),
+                            (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            },
+                            (Some(IssueState::Closed), None, _) => PullRequestStatus::Closed {
+                                time: pr.closed_at.expect("Missing closed time"),
+                            },
+                            (Some(IssueState::Closed), Some(_), _) => {
+                                PullRequestStatus::Merged {
+                                    merge_sha: pr
+                                        .merge_commit_sha
+                                        .and_then(|s| s.is_empty().then_some(None).or(Some(Some(s))))
+                                        .unwrap_or_else(|| {
+                                            //panic!("Missing merge commit SHA {:#?} ", debug_pr)
+                                            Some("NONE".to_string())
+                                        })
+                                        .unwrap_or_else(|| "NONE".to_string()), //panic!("SHA is empty {:#?} ", debug_pr)),
+                                    time: pr.merged_at.expect("Missing merge time"),
+                                }
+                            }
+                            (s, merged_at, labels) => {
+                                panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
+                            }
+                        },
+                        states_history: Some(states),
+                        labels_history: Some(labels),
+                    };
+                    parsed_prs.push(parsed);
+                }
+                inner_bar.finish_with_message("Done");
+                multi.remove(&inner_bar);
+                Ok(())
+            },
+        ).await.unwrap();
     }
 
     async fn parse_issues(
@@ -469,34 +500,50 @@ impl GitHubApi {
         parsed_users: &mut Vec<team_member::Contributor>,
         pr: octocrab::Page<octocrab::models::issues::Issue>,
     ) {
-        for issue in pr.items {
-            parsed_users.push(team_member::Contributor::from(issue.user.clone()));
+        with_progress_bar_async(
+            pr.items.len(),
+            None,
+            async |_bar, multi: &MultiProgress| {
+                let inner_bar = multi.add(ProgressBar::new(pr.items.len() as u64));
+                inner_bar.set_message("Processing PR events with timeline events and labels");
+                inner_bar.set_style(indicatif::ProgressStyle::default_bar()
+                                        .template("[{elapsed_precise}] {bar:40.green/cyan} {pos:>7}/{len:7} {msg}")?
+                                        .progress_chars("##-"),
+                );
 
-            let timeline = self.get_event_timeline(issue.number).await.unwrap();
-            let labels = self.get_labels(issue.number, &timeline).unwrap();
-            let states = self.get_states(issue.number, &timeline).unwrap();
+                for issue in pr.items {
+                    parsed_users.push(team_member::Contributor::from(issue.user.clone()));
 
-            let last_state = match issue.state {
-                IssueState::Open => crate::db::model::issue::IssueStatus::Open {
-                    time: issue.created_at,
-                },
-                IssueState::Closed => crate::db::model::issue::IssueStatus::Closed {
-                    time: issue.closed_at.expect("Missing closed time"),
-                },
-                _ => panic!("Invalid issue state: {:?}", issue.state),
-            };
+                    let timeline = self.get_event_timeline(issue.number).await.unwrap();
+                    let labels = self.get_labels(issue.number, &timeline).unwrap();
+                    let states = self.get_states(issue.number, &timeline).unwrap();
 
-            let parsed_issue = crate::db::model::issue::Issue {
-                repository: self.repository_identifier.clone(),
-                issue_number: issue.number as i64,
-                author_id: issue.user.id.0 as i64,
-                status: last_state,
-                states_history: Some(states),
-                labels_history: Some(labels),
-            };
+                    let last_state = match issue.state {
+                        IssueState::Open => crate::db::model::issue::IssueStatus::Open {
+                            time: issue.created_at,
+                        },
+                        IssueState::Closed => crate::db::model::issue::IssueStatus::Closed {
+                            time: issue.closed_at.expect("Missing closed time"),
+                        },
+                        _ => panic!("Invalid issue state: {:?}", issue.state),
+                    };
 
-            parsed_issues.push(parsed_issue);
-        }
+                    let parsed_issue = crate::db::model::issue::Issue {
+                        repository: self.repository_identifier.clone(),
+                        issue_number: issue.number as i64,
+                        author_id: issue.user.id.0 as i64,
+                        status: last_state,
+                        states_history: Some(states),
+                        labels_history: Some(labels),
+                    };
+
+                    parsed_issues.push(parsed_issue);
+                }
+                inner_bar.finish_with_message("Done");
+                multi.remove(&inner_bar);
+                Ok(())
+            },
+        ).await.unwrap();
     }
 
     fn get_labels(
