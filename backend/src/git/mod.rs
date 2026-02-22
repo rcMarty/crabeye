@@ -3,7 +3,7 @@ use crate::db::Database;
 use crate::git::git::Repo;
 use crate::git::github::{GitHubApi, SyncMode};
 use crate::misc::with_progress_bar_async;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Oid;
 use indicatif::{MultiProgress, ProgressBar};
 use octocrab::params::State;
@@ -14,14 +14,15 @@ use std::sync::Mutex;
 pub mod git;
 pub mod github;
 
-pub struct Analyze {
+pub struct SyncHandler {
     pub repo: Repo,
     github: GitHubApi,
-    pub database: Database,
+    database: Database,
     log_messages: Mutex<Vec<String>>,
 }
 
-impl Analyze {
+/// Public functions for Analyze struct
+impl SyncHandler {
     pub fn init(
         repository_name: String,
         owner: String,
@@ -49,6 +50,78 @@ impl Analyze {
         }
     }
 
+    pub async fn sync_with_full_info(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+        let overall_time = Utc::now();
+        //users section
+        log::info!("Getting users from rust teams");
+        let users = self
+            .github
+            .get_authorized_users()
+            .await
+            .expect("Failed to get users from rust teams");
+
+        log::info!("number of found rust teams users: {}", users.len());
+
+        let timestamp_start = Utc::now();
+        if let Err(res) = self.database.upsert_team_members(&users).await {
+            log::error!("Error: {:?}", res);
+        }
+        self.log_duration(timestamp_start, Utc::now(), "Upserting users from rust teams: ");
+
+        self.sync_pull_requests(sync_mode.clone(), true).await?;
+        self.sync_issues(sync_mode, true).await?;
+
+        self.log_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .for_each(|msg| log::info!("{}", msg));
+        self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
+        Ok(())
+    }
+
+    // pub async fn backfill_missing_history(&self) -> anyhow::Result<()> {
+    // let must_be_backfilled = self.database.get_pr_events_without_history().await?;
+    //
+    // }
+
+    pub async fn sync_without_history(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+        let overall_time = Utc::now();
+        //users section
+        log::info!("Getting users from rust teams");
+        let users = self
+            .github
+            .get_authorized_users()
+            .await
+            .expect("Failed to get users from rust teams");
+
+        log::info!("number of found rust teams users: {}", users.len());
+
+        let timestamp_start = Utc::now();
+        if let Err(res) = self.database.upsert_team_members(&users).await {
+            log::error!("Error: {:?}", res);
+        }
+        self.log_duration(timestamp_start, Utc::now(), "Upserting users from rust teams: ");
+
+        self.sync_pull_requests(sync_mode.clone(), false).await?;
+        self.sync_issues(sync_mode, false).await?;
+
+        self.log_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .for_each(|msg| log::info!("{}", msg));
+        self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
+        Ok(())
+    }
+
+    pub async fn timestamp_of_last_event(&self, repo: &str) -> anyhow::Result<Option<NaiveDateTime>> {
+        self.database.get_last_issue_event_timestamp(repo).await
+    }
+}
+
+/// Private functions and helper methods for Analyze struct
+impl SyncHandler {
     fn url(repository_name: String, owner: String) -> String {
         "https://github.com/".to_owned() + owner.as_str() + "/" + repository_name.as_str()
     }
@@ -84,40 +157,11 @@ impl Analyze {
             .push(format!("{} took: {}", message, format));
     }
 
-    pub async fn analyze(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
-        let overall_time = Utc::now();
-        //users section
-        log::info!("Getting users from rust teams");
-        let users = self
-            .github
-            .get_authorized_users()
-            .await
-            .expect("Failed to get users from rust teams");
-
-        log::info!("number of found rust teams users: {}", users.len());
-
-        let timestamp_start = Utc::now();
-        if let Err(res) = self.database.upsert_team_members(&users).await {
-            log::error!("Error: {:?}", res);
-        }
-        self.log_duration(timestamp_start, Utc::now(), "Upserting users from rust teams: ");
-
-        self.analyze_prs(sync_mode.clone()).await?;
-        self.analyze_issues(sync_mode).await?;
-
-        self.log_messages
-            .lock()
-            .unwrap()
-            .iter()
-            .for_each(|msg| log::info!("{}", msg));
-        self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
-        Ok(())
-    }
-    pub async fn analyze_prs(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+    async fn sync_pull_requests(&self, sync_mode: SyncMode, with_timeline: bool) -> anyhow::Result<()> {
         let mut timestamp_start = Utc::now();
 
         // pr section
-        let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode).await?;
+        let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode, with_timeline).await?;
         self.log_duration(timestamp_start, Utc::now(), "Getting pull requests from github: ");
         log::debug!("found {} prs", prs.len());
 
@@ -192,11 +236,11 @@ impl Analyze {
         Ok(())
     }
 
-    pub async fn analyze_issues(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
+    async fn sync_issues(&self, sync_mode: SyncMode, with_timeline: bool) -> anyhow::Result<()> {
         let mut timestamp_start = Utc::now();
 
         // pr section
-        let (issues, contributors) = self.github.get_issues(State::All, sync_mode).await?;
+        let (issues, contributors) = self.github.get_issues(State::All, sync_mode, with_timeline).await?;
         log::debug!("found {} issues", issues.len());
         self.log_duration(timestamp_start, Utc::now(), "Getting issues from github: ");
 

@@ -1,4 +1,4 @@
-use crate::db::model::issue::{IssueLabel, IssueState};
+use crate::db::model::issue::{Issue, IssueLabel, IssueState};
 use crate::db::model::team_member::TeamMember;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -6,6 +6,7 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
+use crate::db::model::IssueLike;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PrEvent {
@@ -15,6 +16,14 @@ pub struct PrEvent {
     pub state: PullRequestStatus,
     pub states_history: Option<Vec<IssueState>>,
     pub labels_history: Option<Vec<IssueLabel>>,
+}
+
+impl IssueLike for PrEvent {
+    fn states_history(&self) -> Option<&Vec<IssueState>> { self.states_history.as_ref() }
+    fn labels_history(&self) -> Option<&Vec<IssueLabel>> { self.labels_history.as_ref() }
+    fn repository(&self) -> &String { &self.repository }
+    fn issue_number(&self) -> i64 { self.pr_number }
+    fn author_id(&self) -> i64 { self.author_id }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

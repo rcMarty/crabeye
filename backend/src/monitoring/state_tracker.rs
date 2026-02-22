@@ -1,5 +1,5 @@
 use crate::git::github::SyncMode;
-use crate::git::Analyze;
+use crate::git::SyncHandler;
 use chrono::{NaiveDateTime, Utc};
 use std::time::Duration;
 use tokio::time;
@@ -13,7 +13,7 @@ impl StateMonitor {
         Self { interval }
     }
 
-    pub async fn run(self, analyze: &Analyze, repo: &str) {
+    pub async fn run(self, analyze: &SyncHandler, repo: &str) {
         let mut interval = time::interval(self.interval);
         loop {
             interval.tick().await;
@@ -29,7 +29,7 @@ impl StateMonitor {
             }
 
             // download form github
-            let from: NaiveDateTime = match analyze.database.get_last_pr_event_timestamp(repo).await {
+            let from: NaiveDateTime = match analyze.timestamp_of_last_event(repo).await {
                 Ok(Some(ts)) => ts,
                 Ok(None) => {
                     log::info!("No previous PR events found, starting from the beginning");
@@ -40,7 +40,7 @@ impl StateMonitor {
                     continue;
                 }
             };
-            if let Err(e) = analyze.analyze(SyncMode::Since(from)).await {
+            if let Err(e) = analyze.sync_with_full_info(SyncMode::Since(from)).await {
                 log::error!("Error during state tracking: {:?}", e);
             } else {
                 log::info!("State tracking iteration completed successfully");

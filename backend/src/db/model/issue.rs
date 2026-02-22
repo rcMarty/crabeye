@@ -1,5 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{FromRow, Row};
+use crate::db::model::IssueLike;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct Issue {
@@ -9,6 +10,13 @@ pub struct Issue {
     pub status: IssueStatus,
     pub states_history: Option<Vec<IssueState>>,
     pub labels_history: Option<Vec<IssueLabel>>,
+}
+impl IssueLike for Issue {
+    fn states_history(&self) -> Option<&Vec<IssueState>> { self.states_history.as_ref() }
+    fn labels_history(&self) -> Option<&Vec<IssueLabel>> { self.labels_history.as_ref() }
+    fn repository(&self) -> &String { &self.repository }
+    fn issue_number(&self) -> i64 { self.issue_number }
+    fn author_id(&self) -> i64 { self.author_id }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

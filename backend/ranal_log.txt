@@ -1,1 +1,37 @@
-Error getting timeline events for PR #150150: Failed to get timeline events for PR #150150 in rust-lang/rustError getting timeline events for PR #149011: Failed to get timeline events for PR #149011 in rust-lang/rustError getting timeline events for PR #126522: Failed to get timeline events for PR #126522 in rust-lang/rustError getting timeline events for PR #110546: Failed to get timeline events for PR #110546 in rust-lang/rust
+Error getting timeline events for PR #150150: Failed to get timeline events for PR #150150 in rust-lang/rust
+Error getting timeline events for PR #149011: Failed to get timeline events for PR #149011 in rust-lang/rust
+Error getting timeline events for PR #126522: Failed to get timeline events for PR #126522 in rust-lang/rust
+Error getting timeline events for PR #110546: Failed to get timeline events for PR #110546 in rust-lang/rust
+
+[2026-02-19T12:30:03.954Z DEBUG octocrab] requesting
+[2026-02-19T12:30:03.954Z DEBUG hyper_util::client::legacy::pool] reuse idle connection for ("https", api.github.com)
+[2026-02-19T12:30:12.237Z DEBUG hyper_util::client::legacy::pool] pooling idle connection for ("https", api.github.com)
+[2026-02-19T12:30:12.237Z DEBUG octocrab] HTTP; http.status_code=500
+[2026-02-19T12:30:12.237Z DEBUG octocrab] HTTP; otel.status_code="ERROR"
+[2026-02-19T12:30:12.237Z DEBUG octocrab] HTTP; otel.status_code="ERROR"
+[2026-02-19T12:30:12.237Z DEBUG octocrab] HTTP; http.status_code=500
+[2026-02-19T12:30:12.237Z ERROR octocrab] failed with status 500 Internal Server Error
+[2026-02-19T12:30:12.237Z DEBUG octocrab] stream closed
+[11:24:27] ########################################     500/500     Error: Failed to get pull requests for rust-lang/rust                                                                                                                     Error: Failed to get pull requests for rust-lang/rust
+
+Caused by:
+    0: Serde Error: EOF while parsing a value at line 1 column 0
+       Found at    0: snafu::backtrace_impl::<impl snafu::GenerateImplicitData for std::backtrace::Backtrace>::generate
+          1: <octocrab::error::SerdeSnafu as snafu::IntoError<octocrab::error::Error>>::into_error
+          2: octocrab::map_github_error::{{closure}}
+          3: octocrab::api::pulls::list::ListPullRequestsBuilder::send::{{closure}}
+          4: ranal::git::github::GitHubApi::get_pull_requests::{{closure}}::{{closure}}::{{closure}}
+          5: ranal::git::Analyze::analyze::{{closure}}
+          6: ranal::main::{{closure}}
+          7: tokio::runtime::park::CachedParkThread::block_on
+          8: ranal::main
+          9: std::sys::backtrace::__rust_begin_short_backtrace
+         10: std::rt::lang_start::{{closure}}
+         11: std::rt::lang_start_internal
+         12: main
+         13: __libc_start_call_main
+         14: __libc_start_main_alias_1
+         15: _start
+
+    1: EOF while parsing a value at line 1 column 0
+Error getting timeline events for PR #149011: Failed to get timeline events for PR #149011 in rust-lang/rustError getting timeline events for PR #149011: Failed to get timeline events for PR #149011 in rust-lang/rustError getting timeline events for PR #149011: Failed to get timeline events for PR #149011 in rust-lang/rust

@@ -9,6 +9,7 @@ use crate::db::model::pr_event::{
 };
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::{Contributor, Team};
+use crate::db::model::IssueLike;
 use anyhow::{Context, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::Serialize;
@@ -68,17 +69,17 @@ impl Database {
 
         // Bulk Insert Contributors
         sqlx::query!(
-        r#"
+            r#"
 INSERT INTO contributors (github_id, github_name, name)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[])
 ON CONFLICT (github_id) DO UPDATE SET
     github_name = EXCLUDED.github_name,
     name = EXCLUDED.name
         "#,
-        &ids,
-        &github_names,
-        &names
-    )
+            &ids,
+            &github_names,
+            &names
+        )
             .execute(&mut *tx)
             .await?;
 
@@ -116,7 +117,6 @@ kind = EXCLUDED.kind
             .execute(&mut *tx)
             .await?;
 
-
         let mut member_ids = vec![];
         let mut member_teams = vec![];
         for member in team_members {
@@ -125,13 +125,13 @@ kind = EXCLUDED.kind
         }
 
         sqlx::query!(
-                r#"
+            r#"
 INSERT INTO contributors_teams (contributor_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
 "#,
-                &member_ids,
-                &member_teams,
-            )
+            &member_ids,
+            &member_teams,
+        )
             .execute(&mut *tx)
             .await?;
 
@@ -289,41 +289,23 @@ ON CONFLICT (repository, issue, label, timestamp) DO NOTHING
         let mut tx = self.pool.begin().await?;
 
         // Build column vectors directly from iterators for clarity.
-        let repos: Vec<String> = events.iter().map(|e| e.repository.clone()).collect();
-        let prs: Vec<i64> = events.iter().map(|e| e.pr_number).collect();
-        let states: Vec<&str> = events.iter().map(|e| e.state.as_str()).collect();
-        let timestamps: Vec<NaiveDateTime> = events
-            .iter()
-            .map(|e| e.get_timestamp().naive_utc())
-            .collect();
-        let merge_shas: Vec<Option<String>> = events.iter().map(|e| e.get_merge_sha()).collect();
-        let author_ids: Vec<i64> = events.iter().map(|e| e.author_id).collect();
+        let count = events.len();
 
-        assert_eq!(
-            repos.len(),
-            prs.len(),
-            "repositories and prs must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            states.len(),
-            "repositories and states must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            timestamps.len(),
-            "repositories and timestamps must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            merge_shas.len(),
-            "repositories and merge_shas must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            author_ids.len(),
-            "repositories and author_ids must have the same length"
-        );
+        let mut repos: Vec<&str> = Vec::with_capacity(count);
+        let mut prs: Vec<i64> = Vec::with_capacity(count);
+        let mut states: Vec<&str> = Vec::with_capacity(count);
+        let mut timestamps: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
+        let mut merge_shas: Vec<Option<String>> = Vec::with_capacity(count);
+        let mut author_ids: Vec<i64> = Vec::with_capacity(count);
+
+        for event in events {
+            repos.push(event.repository.as_str());
+            prs.push(event.pr_number);
+            states.push(event.state.as_str());
+            timestamps.push(event.get_timestamp().naive_utc());
+            merge_shas.push(event.get_merge_sha());
+            author_ids.push(event.author_id);
+        }
 
         sqlx::query!(
             r#"
@@ -343,7 +325,7 @@ current_state = excluded.current_state,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
 "#,
-            &repos,
+            &repos as &[&str],
             &prs,
             &states as &[&str],
             &timestamps,
@@ -353,177 +335,11 @@ current_state = excluded.current_state,
             .execute(&mut *tx)
             .await?;
 
-        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // section for issue_event_history
-
-        let repos = events
-            .iter()
-            .flat_map(|e| {
-                e.states_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.repository.as_str())
-            })
-            .collect::<Vec<&str>>();
-
-        let prs = events
-            .iter()
-            .flat_map(|e| {
-                e.states_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.pr_number)
-            })
-            .collect::<Vec<i64>>();
-
-        let issues_events_history = events
-            .iter()
-            .flat_map(|e| {
-                e.states_history
-                    .as_ref()
-                    .expect("No States history for events")
-                    .iter()
-                    .map(|s| s.state.as_str())
-            })
-            .collect::<Vec<&str>>();
-
-        let timestamps = events
-            .iter()
-            .flat_map(|e| {
-                e.states_history
-                    .as_ref()
-                    .expect("States history is missing for some events, cannot insert into issue_event_history")
-                    .iter()
-                    .map(|s| s.timestamp)
-            })
-            .collect::<Vec<NaiveDateTime>>();
-
-        sqlx::query!(
-            r#"
-INSERT INTO issue_event_history (repository,issue, is_pr, event,timestamp)
-SELECT
-    repository as repository,
-    issue as issue,
-    true as is_pr,
-    event as event,
-    timestamp as timestamp
-FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[])
-     as t(repository, issue, event, timestamp)
-ON CONFLICT (repository,issue,timestamp) DO NOTHING
-"#,
-            &repos as &[&str],
-            &prs,
-            &issues_events_history as &[&str],
-            &timestamps
-        )
-            .execute(&mut *tx)
-            .await?;
-
-        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // section for issue_label_history
-
-        let count = events.len() * 20;
-
-        let repos = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.repository.as_str())
-            })
-            .collect::<Vec<&str>>();
-        let issues = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.pr_number)
-            })
-            .collect::<Vec<i64>>();
-
-        let labels = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|l| l.label.as_str())
-            })
-            .collect::<Vec<&str>>();
-
-        let timestamps = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("Labels history is missing for some events, cannot insert into issue_labels_history")
-                    .iter()
-                    .map(|l| l.timestamp)
-            })
-            .collect::<Vec<NaiveDateTime>>();
-
-        let actions = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("Labels history is missing for some events, cannot insert into issue_labels_history")
-                    .iter()
-                    .map(|l| l.action.as_str())
-            })
-            .collect::<Vec<&str>>();
-
-        assert_eq!(
-            labels.len(),
-            timestamps.len(),
-            "Labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            labels.len(),
-            actions.len(),
-            "Labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            labels.len(),
-            "Repos, labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            issues.len(),
-            labels.len(),
-            "Issues, labels, timestamps and actions must have the same length"
-        );
-
-        sqlx::query!(
-            r#"
-INSERT INTO issue_labels_history (repository,issue, label,timestamp, action,is_pr)
-SELECT
-    t.repository,
-    t.issue,
-    t.label,
-    t.timestamp,
-    t.action,
-    true -- is_pr hardcoded
-FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[])
-     as t(repository, issue, label, timestamp, action)
-ON CONFLICT (repository,issue,label, timestamp) DO NOTHING
-"#,
-            &repos as &[&str],
-            &issues,
-            &labels as &[&str],
-            &timestamps,
-            &actions as &[&str]
-        )
-            .execute(&mut *tx)
-            .await?;
-
+        if events.iter().all(|event| event.states_history.is_some())
+            && events.iter().all(|event| event.labels_history.is_some())
+        {
+            self.insert_populated_issues(events, &mut tx).await?;
+        }
         tx.commit().await?;
 
         Ok(())
@@ -593,10 +409,7 @@ ON CONFLICT(repository, issue, timestamp) DO NOTHING
             return Ok(());
         }
 
-        assert!(events.first().unwrap().labels_history.is_some());
-        assert!(events.first().unwrap().states_history.is_some());
-
-        let mut tx = self.pool.begin().await?;
+        let mut tx: sqlx::Transaction<sqlx::Postgres> = self.pool.begin().await?;
         let count = events.len();
 
         // Vektory pro sloupce tabulky `issues`
@@ -646,65 +459,62 @@ contributor_id = EXCLUDED.contributor_id
             .execute(&mut *tx)
             .await?;
 
+        if events.iter().all(|event| event.states_history.is_some())
+            && events.iter().all(|event| event.labels_history.is_some())
+        {
+            self.insert_populated_issues(events, &mut tx).await?;
+        }
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    async fn insert_populated_issues<'c, T: IssueLike>(
+        &self,
+        events: &[T],
+        tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    ) -> Result<()> {
+        assert!(
+            events.iter().all(|event| event.labels_history().is_some()),
+            "All events must have labels_history"
+        );
+        assert!(
+            events.iter().all(|event| event.states_history().is_some()),
+            "All events must have states_history"
+        );
+
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_labels_history
-
-        let count = events.len() * 20;
-
-        let repos = events
+        let total_labels: usize = events
             .iter()
-            .flat_map(|e| {
-                e.labels_history
+            .map(|e| {
+                e.labels_history()
                     .as_ref()
                     .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.repository.as_str())
+                    .len()
             })
-            .collect::<Vec<&str>>();
+            .sum();
+        let mut repos: Vec<&str> = Vec::with_capacity(total_labels);
+        let mut issues: Vec<i64> = Vec::with_capacity(total_labels);
+        let mut labels: Vec<&str> = Vec::with_capacity(total_labels);
+        let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_labels);
+        let mut actions: Vec<&str> = Vec::with_capacity(total_labels);
 
-        let issues = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|_l| e.issue_number)
-            })
-            .collect::<Vec<i64>>();
+        for e in events {
+            let repo_str = e.repository().as_str();
+            let issue_num = e.issue_number();
 
-        let labels = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .iter()
-                    .map(|l| l.label.as_str())
-            })
-            .collect::<Vec<&str>>();
-
-        let timestamps = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("Labels history is missing for some events, cannot insert into issue_labels_history")
-                    .iter()
-                    .map(|l| l.timestamp)
-            })
-            .collect::<Vec<NaiveDateTime>>();
-
-        let actions = events
-            .iter()
-            .flat_map(|e| {
-                e.labels_history
-                    .as_ref()
-                    .expect("Labels history is missing for some events, cannot insert into issue_labels_history")
-                    .iter()
-                    .map(|l| l.action.as_str())
-            })
-            .collect::<Vec<&str>>();
+            for l in e
+                .labels_history()
+                .expect("Labels history is missing for some events")
+            {
+                repos.push(repo_str);
+                issues.push(issue_num);
+                labels.push(l.label.as_str());
+                timestamps.push(l.timestamp);
+                actions.push(l.action.as_str());
+            }
+        }
 
         assert_eq!(
             labels.len(),
@@ -747,42 +557,41 @@ ON CONFLICT (repository,issue,label,timestamp) DO NOTHING
             &timestamps,
             &actions as &[&str]
         )
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_state_history
 
+        let total_states: usize = events
+            .iter()
+            .map(|e| {
+                e.states_history()
+                    .as_ref()
+                    .expect("No States history for events")
+                    .len()
+            })
+            .sum();
 
-        let repos = events.iter().flat_map(|e| {
-            e.states_history
-                .as_ref()
-                .expect("No Labels history for events")
-                .iter()
-                .map(|_l| e.repository.as_str())
-        }).collect::<Vec<&str>>();
-        let issues = events.iter().flat_map(|e| {
-            e.states_history
-                .as_ref()
-                .expect("No Labels history for events")
-                .iter()
-                .map(|_l| e.issue_number)
-        }).collect::<Vec<i64>>();
+        let mut repos: Vec<&str> = Vec::with_capacity(total_states);
+        let mut issues: Vec<i64> = Vec::with_capacity(total_states);
+        let mut states: Vec<&str> = Vec::with_capacity(total_states);
+        let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_states);
 
-        let states = events.iter().flat_map(|e| {
-            e.states_history
-                .as_ref()
-                .expect("No States history for events")
-                .iter()
-                .map(|s| s.state.as_str())
-        }).collect::<Vec<&str>>();
-        let timestamps = events.iter().flat_map(|e| {
-            e.states_history
-                .as_ref()
-                .expect("States history is missing for some events, cannot insert into issue_state_history")
-                .iter()
-                .map(|s| s.timestamp)
-        }).collect::<Vec<NaiveDateTime>>();
+        for e in events {
+            let repo_str = e.repository().as_str();
+            let issue_num = e.issue_number();
+
+            for s in e
+                .states_history()
+                .expect("States history is missing for some events")
+            {
+                repos.push(repo_str);
+                issues.push(issue_num);
+                states.push(s.state.as_str());
+                timestamps.push(s.timestamp);
+            }
+        }
 
         assert_eq!(
             repos.len(),
@@ -799,7 +608,6 @@ ON CONFLICT (repository,issue,label,timestamp) DO NOTHING
             timestamps.len(),
             "Repos, issues, states and timestamps must have the same length"
         );
-        
 
         sqlx::query!(
             r#"
@@ -823,10 +631,8 @@ ON CONFLICT (repository, issue, timestamp) DO NOTHING
             &states as &[&str],
             &timestamps
         )
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
-
-        tx.commit().await?;
 
         Ok(())
     }
@@ -1178,7 +984,7 @@ select count(*) as count from (
 /// part where is querying from database misc functions
 impl Database {
     /// Get the timestamp of the last PR event in the database
-    pub async fn get_last_pr_event_timestamp(
+    pub async fn get_last_issue_event_timestamp(
         &self,
         repository: &str,
     ) -> Result<Option<NaiveDateTime>> {
@@ -1217,4 +1023,10 @@ WHERE github_name ilike $1
             Some(record)
         })
     }
+
+    // pub async fn get_pr_events_without_history(&self) -> Result<Vec<i64>> {
+    //     let records = sqlx::query!(
+    //         r#"
+    //
+    // }
 }
