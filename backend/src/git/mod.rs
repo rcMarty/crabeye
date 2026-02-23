@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
@@ -5,7 +6,7 @@ use crate::git::github::{GitHubApi, SyncMode};
 use crate::misc::with_progress_bar_async;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Oid;
-use indicatif::{MultiProgress, ProgressBar};
+use indicatif::MultiProgress;
 use octocrab::params::State;
 use secrecy::SecretString;
 use std::path::Path;
@@ -66,7 +67,11 @@ impl SyncHandler {
         if let Err(res) = self.database.upsert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
-        self.log_duration(timestamp_start, Utc::now(), "Upserting users from rust teams: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Upserting users from rust teams: ",
+        );
 
         self.sync_pull_requests(sync_mode.clone(), true).await?;
         self.sync_issues(sync_mode, true).await?;
@@ -79,11 +84,6 @@ impl SyncHandler {
         self.log_duration(overall_time, Utc::now(), "Overall getting resources: ");
         Ok(())
     }
-
-    // pub async fn backfill_missing_history(&self) -> anyhow::Result<()> {
-    // let must_be_backfilled = self.database.get_pr_events_without_history().await?;
-    //
-    // }
 
     pub async fn sync_without_history(&self, sync_mode: SyncMode) -> anyhow::Result<()> {
         let overall_time = Utc::now();
@@ -101,7 +101,11 @@ impl SyncHandler {
         if let Err(res) = self.database.upsert_team_members(&users).await {
             log::error!("Error: {:?}", res);
         }
-        self.log_duration(timestamp_start, Utc::now(), "Upserting users from rust teams: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Upserting users from rust teams: ",
+        );
 
         self.sync_pull_requests(sync_mode.clone(), false).await?;
         self.sync_issues(sync_mode, false).await?;
@@ -115,7 +119,28 @@ impl SyncHandler {
         Ok(())
     }
 
-    pub async fn timestamp_of_last_event(&self, repo: &str) -> anyhow::Result<Option<NaiveDateTime>> {
+    pub async fn backfill_missing_history(&self) -> anyhow::Result<()> {
+        let must_be_backfilled = self.database.get_issues_without_history().await?;
+        log::info!(
+            "Found {} PR events without history, starting backfilling",
+            must_be_backfilled.len()
+        );
+
+        let timestamp_start = Utc::now();
+        let _filled = self.github.process_backfill(must_be_backfilled).await;
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Backfilling history for issues: ",
+        );
+
+        Ok(())
+    }
+
+    pub async fn timestamp_of_last_event(
+        &self,
+        repo: &str,
+    ) -> anyhow::Result<Option<NaiveDateTime>> {
         self.database.get_last_issue_event_timestamp(repo).await
     }
 }
@@ -157,12 +182,23 @@ impl SyncHandler {
             .push(format!("{} took: {}", message, format));
     }
 
-    async fn sync_pull_requests(&self, sync_mode: SyncMode, with_timeline: bool) -> anyhow::Result<()> {
+    async fn sync_pull_requests(
+        &self,
+        sync_mode: SyncMode,
+        with_timeline: bool,
+    ) -> anyhow::Result<()> {
         let mut timestamp_start = Utc::now();
 
         // pr section
-        let (prs, contributors) = self.github.get_pull_requests(State::All, sync_mode, with_timeline).await?;
-        self.log_duration(timestamp_start, Utc::now(), "Getting pull requests from github: ");
+        let (prs, contributors) = self
+            .github
+            .get_pull_requests(State::All, sync_mode, with_timeline)
+            .await?;
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Getting pull requests from github: ",
+        );
         log::debug!("found {} prs", prs.len());
 
         // insert non existing contributors
@@ -172,7 +208,11 @@ impl SyncHandler {
         );
         timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
-        self.log_duration(timestamp_start, Utc::now(), "Inserting contributors from pull requests: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Inserting contributors from pull requests: ",
+        );
 
         timestamp_start = Utc::now();
         // process PRs and its files and contributors
@@ -230,9 +270,14 @@ impl SyncHandler {
                 }
                 Ok(())
             },
-        ).await?;
+        )
+            .await?;
 
-        self.log_duration(timestamp_start, Utc::now(), "Inserting pull requests to database: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Inserting pull requests to database: ",
+        );
         Ok(())
     }
 
@@ -240,22 +285,37 @@ impl SyncHandler {
         let mut timestamp_start = Utc::now();
 
         // pr section
-        let (issues, contributors) = self.github.get_issues(State::All, sync_mode, with_timeline).await?;
+        let (issues, contributors) = self
+            .github
+            .get_issues(State::All, sync_mode, with_timeline)
+            .await?;
         log::debug!("found {} issues", issues.len());
         self.log_duration(timestamp_start, Utc::now(), "Getting issues from github: ");
 
         // insert non existing contributors
-        log::info!("Upserting contributors to database ({} found)", contributors.len());
+        log::info!(
+            "Upserting contributors to database ({} found)",
+            contributors.len()
+        );
         timestamp_start = Utc::now();
         self.database.upsert_contributors(&contributors).await?;
-        self.log_duration(timestamp_start, Utc::now(), "Inserting contributors from issues to database: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Inserting contributors from issues to database: ",
+        );
 
         timestamp_start = Utc::now();
         if let Err(res) = self.database.insert_issues(issues.as_slice()).await {
             log::error!("Error when inserting issue event to database: {:?}", res);
         }
-        self.log_duration(timestamp_start, Utc::now(), "Inserting issues to database: ");
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Inserting issues to database: ",
+        );
 
         Ok(())
     }
 }
+

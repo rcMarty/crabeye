@@ -2,20 +2,19 @@
 pub mod model;
 
 // src/db/mod.rs
-use crate::api::{Pagination, PrStateParams};
+use crate::api::Pagination;
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{
     FileActivity, PrEvent, PullRequestStatus, PullRequestStatusRequest,
 };
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::{Contributor, Team};
-use crate::db::model::IssueLike;
-use anyhow::{Context, Result};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use serde::Serialize;
+use crate::db::model::{BackfillRecord, IssueLike};
+use anyhow::Result;
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::{PgPool, Pool, Postgres, QueryBuilder};
-use std::collections::{HashMap, HashSet};
+use sqlx::{PgPool, Pool, Postgres};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -162,39 +161,38 @@ where not exists (select 1 from contributors where github_id = $1);
     }
 
     pub async fn insert_pr_event(&self, event: &PrEvent) -> Result<()> {
-        assert!(
-            event.labels_history.is_some(),
-            "labels_history must be present for PR events"
-        );
-        assert!(
-            event.states_history.is_some(),
-            "states_history must be present for PR events"
-        );
-
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
-        r#"
-        INSERT INTO issues (repository, issue, is_pr, current_state, timestamp, merge_sha, contributor_id)
-        VALUES ($1, $2, true, $3, $4, $5, $6)
-        ON CONFLICT(repository, issue) DO UPDATE SET
-            current_state = excluded.current_state,
-            timestamp = excluded.timestamp,
-            merge_sha = excluded.merge_sha,
-            contributor_id = excluded.contributor_id
-        "#,
-        event.repository,
-        event.pr_number,
-        event.state.as_str(),
-        event.get_timestamp().naive_utc(),
-        event.get_merge_sha(),
-        event.author_id
-    )
+            r#"
+INSERT INTO issues (repository, issue, is_pr, current_state, timestamp, merge_sha, contributor_id)
+VALUES ($1, $2, true, $3, $4, $5, $6)
+ON CONFLICT(repository, issue) DO UPDATE SET
+    current_state = excluded.current_state,
+    timestamp = excluded.timestamp,
+    merge_sha = excluded.merge_sha,
+    contributor_id = excluded.contributor_id
+WHERE issues.timestamp < EXCLUDED.timestamp
+"#,
+            event.repository,
+            event.pr_number,
+            event.state.as_str(),
+            event.get_timestamp().naive_utc(),
+            event.get_merge_sha(),
+            event.author_id
+        )
             .execute(&mut *tx)
             .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // insert to issue_event_history
+
+        // Check if i must insert history
+        if event.states_history.is_none() || event.labels_history.is_none() {
+            log::warn!("Event for PR #{} is missing states_history or labels_history. Skipping history insertion for this event.", event.pr_number);
+            tx.commit().await?;
+            return Ok(());
+        }
 
         let states_history = event.states_history.as_ref().unwrap();
 
@@ -213,7 +211,7 @@ where not exists (select 1 from contributors where github_id = $1);
                 t.timestamp -- z UNNEST
             FROM UNNEST($3::TEXT[], $4::TIMESTAMP[])
                 as t(event, timestamp)
-            ON CONFLICT (repository, issue, timestamp) DO NOTHING
+            ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
             event.repository,
             event.pr_number,
@@ -245,7 +243,7 @@ SELECT
     true -- is_pr hardcoded
 FROM UNNEST($3::TEXT[], $4::TIMESTAMP[], $5::TEXT[])
     as t(label, timestamp, action)
-ON CONFLICT (repository, issue, label, timestamp) DO NOTHING
+ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
             "#,
             event.repository,
             event.pr_number,
@@ -261,30 +259,11 @@ ON CONFLICT (repository, issue, label, timestamp) DO NOTHING
         Ok(())
     }
 
-    /// This function takes a list of PrEvent and returns a new list containing only the latest event for each unique (repository, pr_number) pair.
-    fn latest_pr_events(events: &[PrEvent]) -> Vec<PrEvent> {
-        let mut map: HashMap<(String, i64), PrEvent> = HashMap::with_capacity(events.len());
-
-        for event in events.iter() {
-            map.entry((event.repository.clone(), event.pr_number))
-                .and_modify(|existing| {
-                    if event.get_timestamp() > existing.get_timestamp() {
-                        *existing = event.clone();
-                    }
-                })
-                .or_insert_with(|| event.clone());
-        }
-
-        map.into_values().collect()
-    }
     pub async fn insert_pr_events(&self, events: &[PrEvent]) -> Result<()> {
         // let events = Self::latest_pr_events(events);
         if events.is_empty() {
             return Ok(());
         }
-
-        assert!(events.first().unwrap().labels_history.is_some());
-        assert!(events.first().unwrap().states_history.is_some());
 
         let mut tx = self.pool.begin().await?;
 
@@ -324,6 +303,7 @@ current_state = excluded.current_state,
     timestamp = excluded.timestamp,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
+WHERE issues.timestamp < EXCLUDED.timestamp
 "#,
             &repos as &[&str],
             &prs,
@@ -338,8 +318,8 @@ current_state = excluded.current_state,
         if events.iter().all(|event| event.states_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
         {
-            self.insert_populated_issues(events, &mut tx).await?;
-        }
+            self.insert_issues_history(events, &mut tx).await?;
+        } else {}
         tx.commit().await?;
 
         Ok(())
@@ -351,7 +331,7 @@ current_state = excluded.current_state,
             r#"
 INSERT INTO file_activity(repository, issue, file_path, contributor_id, timestamp)
 VALUES ($1,$2,$3,$4, $5)
-ON CONFLICT(repository, issue, timestamp) DO NOTHING
+ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
                "#,
             activity.repository,
             activity.pr,
@@ -365,33 +345,28 @@ ON CONFLICT(repository, issue, timestamp) DO NOTHING
     }
 
     pub async fn insert_file_activities(&self, activities: &[FileActivity]) -> Result<()> {
-        let repositories = activities
-            .iter()
-            .map(|activity| activity.repository.as_str())
-            .collect::<Vec<_>>();
-        let user_ids = activities
-            .iter()
-            .map(|activity| activity.user_id)
-            .collect::<Vec<_>>();
-        let prs = activities
-            .iter()
-            .map(|activity| activity.pr)
-            .collect::<Vec<_>>();
-        let file_paths = activities
-            .iter()
-            .map(|activity| activity.file_path.as_str())
-            .collect::<Vec<_>>();
-        let timestamps = activities
-            .iter()
-            .map(|activity| activity.timestamp.naive_utc())
-            .collect::<Vec<_>>();
+        let count = activities.len();
+
+        let mut repositories: Vec<&str> = Vec::with_capacity(count);
+        let mut user_ids: Vec<i64> = Vec::with_capacity(count);
+        let mut prs: Vec<i64> = Vec::with_capacity(count);
+        let mut file_paths: Vec<&str> = Vec::with_capacity(count);
+        let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(count);
+
+        for activity in activities {
+            repositories.push(activity.repository.as_str());
+            user_ids.push(activity.user_id);
+            prs.push(activity.pr);
+            file_paths.push(activity.file_path.as_str());
+            timestamps.push(activity.timestamp.naive_utc());
+        }
 
         sqlx::query!(
             r#"
 INSERT INTO file_activity(repository, issue, file_path, contributor_id, timestamp)
 SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::BIGINT[], $5::TIMESTAMP[])
 as t(repository, pr, file_path, user_login, timestamp)
-ON CONFLICT(repository, issue, timestamp) DO NOTHING
+ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
                "#,
             &repositories as &[&str],
             &prs,
@@ -445,9 +420,10 @@ FROM UNNEST(
     $5::TIMESTAMP[]
 ) AS t(repo, issue, author, state, ts)
 ON CONFLICT (repository, issue) DO UPDATE SET
-current_state = EXCLUDED.current_state,
-timestamp = EXCLUDED.timestamp,
-contributor_id = EXCLUDED.contributor_id
+    current_state = EXCLUDED.current_state,
+    timestamp = EXCLUDED.timestamp,
+    contributor_id = EXCLUDED.contributor_id
+WHERE issues.timestamp < EXCLUDED.timestamp
 
         "#,
             &repos as &[&str],
@@ -462,14 +438,41 @@ contributor_id = EXCLUDED.contributor_id
         if events.iter().all(|event| event.states_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
         {
-            self.insert_populated_issues(events, &mut tx).await?;
+            self.insert_issues_history(events, &mut tx).await?;
         }
         tx.commit().await?;
 
         Ok(())
     }
 
-    async fn insert_populated_issues<'c, T: IssueLike>(
+    pub async fn insert_history<T>(&self, history: &[T]) -> Result<()>
+    where
+        T: IssueLike,
+    {
+        let mut tx = self.pool.begin().await?;
+
+        let check = history.iter().all(|issue| issue.labels_history().is_some())
+            && history.iter().all(|issue| issue.states_history().is_some());
+        if !check {
+            let ok_history = history
+                .iter()
+                .filter(|&issue| {
+                    issue.labels_history().is_some() && issue.states_history().is_some()
+                })
+                .collect::<Vec<_>>();
+            log::warn!("Some events are missing labels_history or states_history. Only inserting events with complete history. Total: {}, with complete history: {}", history.len(), ok_history.len());
+            self.insert_issues_history(ok_history.as_ref(), &mut tx)
+                .await?;
+
+            return Ok(());
+        }
+
+        self.insert_issues_history(history, &mut tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn insert_issues_history<'c, T: IssueLike>(
         &self,
         events: &[T],
         tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
@@ -499,6 +502,7 @@ contributor_id = EXCLUDED.contributor_id
         let mut labels: Vec<&str> = Vec::with_capacity(total_labels);
         let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_labels);
         let mut actions: Vec<&str> = Vec::with_capacity(total_labels);
+        let mut is_prs: Vec<bool> = Vec::with_capacity(total_labels);
 
         for e in events {
             let repo_str = e.repository().as_str();
@@ -513,6 +517,7 @@ contributor_id = EXCLUDED.contributor_id
                 labels.push(l.label.as_str());
                 timestamps.push(l.timestamp);
                 actions.push(l.action.as_str());
+                is_prs.push(e.is_pr());
             }
         }
 
@@ -546,16 +551,17 @@ SELECT
     t.label,
     t.timestamp,
     t.action,
-    false -- is_pr hardcoded
-FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[])
-     as t(repository, issue, label, timestamp, action)
-ON CONFLICT (repository,issue,label,timestamp) DO NOTHING
+    t.is_pr -- is_pr hardcoded
+FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $6::BOOLEAN[])
+     as t(repository, issue, label, timestamp, action, is_pr)
+ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
 "#,
             &repos as &[&str],
             &issues,
             &labels as &[&str],
             &timestamps,
-            &actions as &[&str]
+            &actions as &[&str],
+            &is_prs,
         )
             .execute(&mut **tx)
             .await?;
@@ -577,6 +583,7 @@ ON CONFLICT (repository,issue,label,timestamp) DO NOTHING
         let mut issues: Vec<i64> = Vec::with_capacity(total_states);
         let mut states: Vec<&str> = Vec::with_capacity(total_states);
         let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_states);
+        let mut is_prs: Vec<bool> = Vec::with_capacity(total_states);
 
         for e in events {
             let repo_str = e.repository().as_str();
@@ -590,6 +597,7 @@ ON CONFLICT (repository,issue,label,timestamp) DO NOTHING
                 issues.push(issue_num);
                 states.push(s.state.as_str());
                 timestamps.push(s.timestamp);
+                is_prs.push(e.is_pr());
             }
         }
 
@@ -617,19 +625,21 @@ SELECT
     t.issue,
     t.event,
     t.ts,
-    false -- is_pr hardcoded
+    t.is_pr
 FROM UNNEST(
     $1::TEXT[],
     $2::BIGINT[],
     $3::TEXT[],
-    $4::TIMESTAMP[]
-) AS t(repo, issue, event, ts)
-ON CONFLICT (repository, issue, timestamp) DO NOTHING
+    $4::TIMESTAMP[],
+    $5::BOOLEAN[]
+) AS t(repo, issue, event, ts, is_pr)
+ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
             &repos as &[&str],
             &issues,
             &states as &[&str],
-            &timestamps
+            &timestamps,
+            &is_prs,
         )
             .execute(&mut **tx)
             .await?;
@@ -820,11 +830,7 @@ LIMIT $5;
             .and_hms_opt(0, 0, 0)
             .unwrap();
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
-        log::debug!(
-            "timestamp_ start {} end {}",
-            timestamp_start.to_string(),
-            timestamp_end.to_string()
-        );
+        log::debug!("timestamp_ start {} end {}", timestamp_start, timestamp_end);
         let file_path = format!("{}%", file_path);
 
         let (limit, offset) = pagination.limit_offset();
@@ -905,7 +911,7 @@ where github_id in
             pagination.per_page
         );
 
-        let (limit, offset) = pagination.limit_offset();
+        let (_limit, _offset) = pagination.limit_offset();
         let count = sqlx::query!(
             r#"
 select count(*) as count from (
@@ -1024,9 +1030,24 @@ WHERE github_name ilike $1
         })
     }
 
-    // pub async fn get_pr_events_without_history(&self) -> Result<Vec<i64>> {
-    //     let records = sqlx::query!(
-    //         r#"
-    //
-    // }
+    pub async fn get_issues_without_history(&self) -> Result<Vec<BackfillRecord>> {
+        let records = sqlx::query_as::<Postgres, BackfillRecord>(
+            r#"
+    select
+        repository as repository,
+        issue as issue_number,
+        is_pr as is_pr,
+        contributor_id as author_id
+    from issues
+    where (repository, issue) NOT IN (
+              SELECT repository, issue
+               FROM issue_event_history
+           );
+    "#,
+        )
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(records)
+    }
 }

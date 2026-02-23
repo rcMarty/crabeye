@@ -40,11 +40,20 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Analyze { sync } => {
-            let analyze = SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
+        Commands::SyncAll { sync, full_history } => {
+            let handler =
+                SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
+
             let sync = sync.unwrap_or(git::github::SyncMode::Last(10));
-            analyze.sync_with_full_info(sync).await?;
-            log::info!("Analyze is completed");
+            if full_history.unwrap_or(false) {
+                log::info!("Syncing with full history. This will take much longer but will give you more data for analysis.");
+                handler.sync_with_full_info(sync).await?;
+            } else {
+                log::info!("Syncing without full history. This will be faster but will give you less data for analysis.");
+                handler.sync_without_history(sync).await?;
+            }
+
+            log::info!("Sync is completed");
 
             log::info!("Press enter to exit...");
             let mut input = String::new();
@@ -55,7 +64,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve => {
             // spawn the task to get new data every minute
-            let analyze = SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
+            let handler =
+                SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
             let state_tracker = StateMonitor::new(std::time::Duration::from_secs(60));
 
             // set up and run the API server
@@ -80,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
 
             // run both the state tracker and the API server
             tokio::select! {
-                _ = state_tracker.run(&analyze,"rust-lang/rust") => {
+                _ = state_tracker.run(&handler,"rust-lang/rust") => {
                     log::info!("State tracker task ended");
             }
                 res = axum::serve(listener, router) => {
@@ -89,6 +99,12 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+        }
+        Commands::Backfill => {
+            let handler =
+                SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
+            handler.backfill_missing_history().await?;
+            log::info!("Backfill is completed");
         }
     }
 

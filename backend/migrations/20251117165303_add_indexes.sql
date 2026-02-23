@@ -94,12 +94,17 @@ CREATE INDEX idx_contributors_teams_team ON contributors_teams (team);
 
 ALTER TABLE issue_event_history
     ADD CONSTRAINT uq_issue_event_history_conflict
-        UNIQUE (repository, issue, timestamp);
+        UNIQUE (repository, issue, timestamp, event);
 
 ALTER TABLE issue_labels_history
     ADD CONSTRAINT uq_issue_labels_history_conflict
-        UNIQUE (repository, issue, label, timestamp);
+        UNIQUE (repository, issue, timestamp, label);
 
 ALTER TABLE issues
     ADD CONSTRAINT uq_issues_conflict
         UNIQUE (repository, issue);
+
+
+ALTER TABLE file_activity
+    ADD CONSTRAINT uq_file_activity_conflict
+        UNIQUE (repository, issue, timestamp, file_path);

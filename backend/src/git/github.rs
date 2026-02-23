@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
-use crate::db::model::team_member;
+use crate::db::model::{team_member, BackfillRecord};
 use crate::misc::with_progress_bar_async;
 use crate::MULTI_PROGRESS_BAR;
 use anyhow::{anyhow, Context};
@@ -28,24 +28,8 @@ pub struct GitHubApi {
     octocrab: Octocrab,
 }
 
+/// Public functions about getting all the data from api
 impl GitHubApi {
-    /// Create a new GitHubApi instance
-    /// * token - GitHub personal access token
-    pub fn new(
-        repository_identifier: String,
-        owner: String,
-        repository: String,
-        token: SecretString,
-    ) -> anyhow::Result<Self> {
-        let octocrab = Octocrab::builder().personal_token(token).build()?;
-        Ok(Self {
-            repository_identifier,
-            owner,
-            repository,
-            octocrab,
-        })
-    }
-
     pub async fn get_authorized_users(&self) -> Result<Vec<team_member::TeamMember>, String> {
         let url = format!("{}/teams.json", ::rust_team_data::v1::BASE_URL);
         let client = reqwest::Client::new();
@@ -84,15 +68,7 @@ impl GitHubApi {
         Ok(authorized_users)
     }
 
-    fn append_to_file(content: &str) {
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true) // Create file if it doesn't exist
-            .open("ranal_log.txt")
-            .unwrap();
 
-        file.write_all(content.as_bytes()).unwrap();
-    }
     pub async fn get_issues(
         &self,
         state: params::State,
@@ -141,7 +117,12 @@ impl GitHubApi {
                             log::debug!("Processing page {page}");
                             log::debug!("Found {} issues", response.items.len());
                             log::debug!("Last PR updated at: {}", issue.updated_at.naive_utc());
-                            self.parse_issues(&mut parsed_issues, &mut parsed_users, response, with_timeline)
+                            self.parse_issues(
+                                &mut parsed_issues,
+                                &mut parsed_users,
+                                response,
+                                with_timeline,
+                            )
                                 .await;
                             page += 1;
                         }
@@ -190,7 +171,12 @@ impl GitHubApi {
                                 break;
                             }
 
-                            self.parse_issues(&mut parsed_issues, &mut parsed_users, pr, with_timeline)
+                            self.parse_issues(
+                                &mut parsed_issues,
+                                &mut parsed_users,
+                                pr,
+                                with_timeline,
+                            )
                                 .await;
                         }
                         bar.finish_with_message("Done");
@@ -227,12 +213,13 @@ impl GitHubApi {
 
                 let mut page = 1u32;
                 'pageLoop: loop {
-                    let response = self.pr_request(state, page, async |req| {
-                        req.direction(params::Direction::Descending)
-                            .sort(pulls::Sort::Updated)
-                            .send()
-                            .await
-                    })
+                    let response = self
+                        .pr_request(state, page, async |req| {
+                            req.direction(params::Direction::Descending)
+                                .sort(pulls::Sort::Updated)
+                                .send()
+                                .await
+                        })
                         .await
                         .context("Cannot get pull requests")?;
 
@@ -255,7 +242,12 @@ impl GitHubApi {
                                 "Last PR updated at: {}",
                                 pr.updated_at.unwrap_or(pr.created_at.unwrap())
                             );
-                            self.parse_prs(&mut parsed_prs, &mut parsed_users, response, with_timeline)
+                            self.parse_prs(
+                                &mut parsed_prs,
+                                &mut parsed_users,
+                                response,
+                                with_timeline,
+                            )
                                 .await;
                             page += 1;
                         }
@@ -307,7 +299,8 @@ impl GitHubApi {
                                 break;
                             }
 
-                            self.parse_prs(&mut parsed_prs, &mut parsed_users, pr, with_timeline).await;
+                            self.parse_prs(&mut parsed_prs, &mut parsed_users, pr, with_timeline)
+                                .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
@@ -319,10 +312,42 @@ impl GitHubApi {
         }
     }
 
-    pub async fn get_event_timeline(
+    pub async fn process_backfill(
         &self,
-        event_number: u64,
-    ) -> anyhow::Result<Vec<TimelineEvent>> {
+        mut records_from_db: Vec<BackfillRecord>,
+    ) -> Vec<BackfillRecord> {
+        with_progress_bar_async(
+            records_from_db.len(),
+            Some("Processing backfill records".parse().unwrap()),
+            async |bar_opt, multi| {
+                let bar = bar_opt.unwrap();
+                for record in &mut records_from_db {
+                    bar.inc(1);
+                    bar.set_message(format!(
+                        "Processing backfill (issue #{})",
+                        record.issue_number
+                    ));
+                    let (labels, states) = self
+                        .fetch_and_parse_timeline(record.issue_number as u64)
+                        .await;
+
+                    record.labels_history = labels;
+                    record.states_history = states;
+                }
+                bar.finish_with_message("Done");
+                Ok(())
+            },
+        )
+            .await
+            .unwrap();
+
+        records_from_db
+    }
+}
+
+/// private fetching functions and parsing
+impl GitHubApi {
+    async fn get_event_timeline(&self, event_number: u64) -> anyhow::Result<Vec<TimelineEvent>> {
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut page = 1u32;
 
@@ -403,28 +428,35 @@ impl GitHubApi {
         Ok(events)
     }
 
-    async fn issue_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
-    where
-        F: AsyncFnOnce(ListIssuesBuilder<'_, '_, '_, '_>) -> R,
-    {
-        let issues = self
-            .octocrab
-            .issues(self.owner.clone(), self.repository.clone());
-        let req = issues.list().per_page(100).page(page).state(state);
-
-        f(req).await
-    }
-
-    async fn pr_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
-    where
-        F: AsyncFnOnce(ListPullRequestsBuilder<'_, '_>) -> R,
-    {
-        let prs = self
-            .octocrab
-            .pulls(self.owner.clone(), self.repository.clone());
-        let req = prs.list().per_page(100).page(page).state(state);
-
-        f(req).await
+    async fn fetch_and_parse_timeline(
+        &self,
+        issue_number: u64,
+    ) -> (
+        Option<Vec<crate::db::model::issue::IssueLabel>>,
+        Option<Vec<crate::db::model::issue::IssueState>>,
+    ) {
+        match self.get_event_timeline(issue_number).await {
+            Ok(timeline) => (
+                self.get_labels(issue_number, &timeline)
+                    .map_err(|err| {
+                        log::warn!("Cannot get labels for PR #{}: {:#?}", issue_number, err)
+                    })
+                    .ok(),
+                self.get_events(issue_number, &timeline)
+                    .map_err(|err| {
+                        log::warn!("Cannot get events for PR #{}: {:#?}", issue_number, err)
+                    })
+                    .ok(),
+            ),
+            Err(e) => {
+                log::warn!(
+                    "Cannot download timeline events for PR #{}: {:#?}",
+                    issue_number,
+                    e
+                );
+                (None, None)
+            }
+        }
     }
 
     async fn parse_prs(
@@ -450,40 +482,10 @@ impl GitHubApi {
                 ));
 
                 let (labels, states) = if with_timeline {
-                    match self.get_event_timeline(pr.number).await {
-                        Ok(timeline) => (
-                            self.get_labels(pr.number, &timeline)
-                                .map_err(|err| {
-                                    log::warn!(
-                                        "Cannot get labels for PR #{}: {:#?}",
-                                        pr.number,
-                                        err
-                                    )
-                                })
-                                .ok(),
-                            self.get_events(pr.number, &timeline)
-                                .map_err(|err| {
-                                    log::warn!(
-                                        "Cannot get events for PR #{}: {:#?}",
-                                        pr.number,
-                                        err
-                                    )
-                                })
-                                .ok(),
-                        ),
-                        Err(e) => {
-                            log::warn!(
-                                "Cannot download timeline events for PR #{}: {:#?}",
-                                pr.number,
-                                e
-                            );
-                            (None, None)
-                        }
-                    }
+                    self.fetch_and_parse_timeline(pr.number).await
                 } else {
                     (None, None)
                 };
-
 
                 let parsed = PrEvent {
                     repository: self.repository_identifier.clone(),
@@ -558,44 +560,23 @@ impl GitHubApi {
                 inner_bar.set_message(format!(
                     "Processing Issue:'{}' events {} timeline events and labels",
                     issue.number,
-                    with_timeline
-                        .then(|| "with".to_string())
-                        .unwrap_or_else(|| "without".to_string())
+                    if with_timeline {
+                        "with".to_string()
+                    } else {
+                        "without".to_string()
+                    }
                 ));
                 inner_bar.inc(1);
+
+                if issue.pull_request.is_some() {
+                    log::warn!("Issue #{} is a pull request, skipping", issue.number);
+                    continue;
+                }
+
                 parsed_users.push(team_member::Contributor::from(issue.user.clone()));
 
                 let (labels, states) = if with_timeline {
-                    match self.get_event_timeline(issue.number).await {
-                        Ok(timeline) => (
-                            self.get_labels(issue.number, &timeline)
-                                .map_err(|err| {
-                                    log::warn!(
-                                        "Cannot get labels for issue #{}: {:#?}",
-                                        issue.number,
-                                        err
-                                    )
-                                })
-                                .ok(),
-                            self.get_events(issue.number, &timeline)
-                                .map_err(|err| {
-                                    log::warn!(
-                                        "Cannot get events for issue #{}: {:#?}",
-                                        issue.number,
-                                        err
-                                    )
-                                })
-                                .ok(),
-                        ),
-                        Err(e) => {
-                            log::warn!(
-                                "Cannot download timeline events for issue #{}: {:#?}",
-                                issue.number,
-                                e
-                            );
-                            (None, None)
-                        }
-                    }
+                    self.fetch_and_parse_timeline(issue.number).await
                 } else {
                     (None, None)
                 };
@@ -628,6 +609,60 @@ impl GitHubApi {
             .await
             .unwrap();
     }
+}
+
+/// basic functions and helpers
+impl GitHubApi {
+    /// Create a new GitHubApi instance
+    /// * token - GitHub personal access token
+    pub fn new(
+        repository_identifier: String,
+        owner: String,
+        repository: String,
+        token: SecretString,
+    ) -> anyhow::Result<Self> {
+        let octocrab = Octocrab::builder().personal_token(token).build()?;
+        Ok(Self {
+            repository_identifier,
+            owner,
+            repository,
+            octocrab,
+        })
+    }
+
+    fn append_to_file(content: &str) {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true) // Create file if it doesn't exist
+            .open("ranal_log.txt")
+            .unwrap();
+
+        file.write_all(content.as_bytes()).unwrap();
+    }
+
+    async fn issue_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
+    where
+        F: AsyncFnOnce(ListIssuesBuilder<'_, '_, '_, '_>) -> R,
+    {
+        let issues = self
+            .octocrab
+            .issues(self.owner.clone(), self.repository.clone());
+        let req = issues.list().per_page(100).page(page).state(state);
+
+        f(req).await
+    }
+
+    async fn pr_request<F, R>(&self, state: params::State, page: u32, f: F) -> R
+    where
+        F: AsyncFnOnce(ListPullRequestsBuilder<'_, '_>) -> R,
+    {
+        let prs = self
+            .octocrab
+            .pulls(self.owner.clone(), self.repository.clone());
+        let req = prs.list().per_page(100).page(page).state(state);
+
+        f(req).await
+    }
 
     fn get_labels(
         &self,
@@ -642,7 +677,7 @@ impl GitHubApi {
                         .label
                         .clone()
                         .context(format!("cannot get label from Timeline event{:?}", event))?
-                        .color;
+                        .name;
                     let time = event
                         .created_at
                         .context(format!(
@@ -662,7 +697,7 @@ impl GitHubApi {
                         .label
                         .clone()
                         .context(format!("cannot get label from Timeline event{:?}", event))?
-                        .color;
+                        .name;
                     let time = event
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
@@ -733,7 +768,7 @@ impl GitHubApi {
                         .naive_utc();
                 }
                 _ => {
-                    log::trace!("not interesting timeline event: {:#?}", event);
+                    log::trace!("not interesting timeline event: {:#?}", event.event);
                 }
             }
         }

@@ -128,5 +128,11 @@ WHERE is_pr = true;
 -- všechny isues které nemají záznam v issue_event_history -> nedotahovalo se přes timeline api
 select repository, issue
 from issues
-where (repository, issue) NOT IN (SELECT repository, issue FROM issue_event_history)
-    and is_pr = true;
+where (repository, issue) NOT IN (SELECT repository, issue FROM issue_event_history);
+
+
+-- kontrola zda se nějaké issue opakuje v issues
+SELECT issue, COUNT(*) as cnt
+FROM issues
+GROUP BY issue
+HAVING count(*) > 1;

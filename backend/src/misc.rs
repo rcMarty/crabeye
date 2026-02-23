@@ -39,16 +39,10 @@ where
     let multi = MULTI_PROGRESS_BAR.clone();
 
     match message {
-        None => {
-            match process(None, &multi).await {
-                Ok(result) => {
-                    anyhow::Ok(result)
-                }
-                Err(e) => {
-                    Err(e)
-                }
-            }
-        }
+        None => match process(None, &multi).await {
+            Ok(result) => anyhow::Ok(result),
+            Err(e) => Err(e),
+        },
         Some(mess) => {
             let bar = multi.add(indicatif::ProgressBar::new(total as u64));
             bar.set_style(
@@ -72,7 +66,5 @@ where
         }
     }
 
-
     // Call the closure with the progress bar
-
 }

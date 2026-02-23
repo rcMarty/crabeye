@@ -1,5 +1,7 @@
 use crate::api::app_state::AppState;
-use crate::api::{PrCountParams, PrStateParams, PrTopFilesParams, ReviewParams, WaitingForReviewParams};
+use crate::api::{
+    PrCountParams, PrStateParams, PrTopFilesParams, ReviewParams, WaitingForReviewParams,
+};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
 use crate::db::model::responses::TopFilesResponse;
@@ -21,9 +23,9 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description(
                     "Get users who made reviews on a specific file/path within a date range",
                 )
-                    .tag("PR")
-                    .response::<200, Json<PaginatedResponse<Contributor>>>()
-                    .response::<500, (StatusCode, String)>()
+                .tag("PR")
+                .response::<200, Json<PaginatedResponse<Contributor>>>()
+                .response::<500, (StatusCode, String)>()
             }),
         )
         .api_route(
@@ -182,7 +184,11 @@ async fn pr_state(
     State(app): State<AppState>,
     Query(params): Query<PrStateParams>,
 ) -> impl IntoApiResponse {
-    match app.db.get_issue_state_at(params.repository.as_str(), params.pr, params.timestamp).await {
+    match app
+        .db
+        .get_issue_state_at(params.repository.as_str(), params.pr, params.timestamp)
+        .await
+    {
         Ok(counts) => (StatusCode::OK, Json(counts)).into_response(),
         Err(err) => {
             log::error!("Error getting file counts: {}", err);
@@ -198,7 +204,10 @@ async fn waiting_for_review(
 ) -> impl IntoApiResponse {
     match app
         .db
-        .get_prs_waiting_for_review(params.repository.as_str(), params.pagination.unwrap_or_default())
+        .get_prs_waiting_for_review(
+            params.repository.as_str(),
+            params.pagination.unwrap_or_default(),
+        )
         .await
     {
         Ok(files) => (StatusCode::OK, Json(files)).into_response(),

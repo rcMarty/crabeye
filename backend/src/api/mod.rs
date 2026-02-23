@@ -1,6 +1,5 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
-use chrono::{NaiveDate, NaiveDateTime};
-use git2::Repository;
+use chrono::NaiveDate;
 
 pub mod app_state;
 pub mod docs;

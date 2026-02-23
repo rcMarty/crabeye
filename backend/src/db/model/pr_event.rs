@@ -1,12 +1,12 @@
 use crate::db::model::issue::{Issue, IssueLabel, IssueState};
 use crate::db::model::team_member::TeamMember;
+use crate::db::model::IssueLike;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Encode, Postgres, Row, Type};
 use std::fmt::Display;
-use crate::db::model::IssueLike;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PrEvent {
@@ -19,11 +19,24 @@ pub struct PrEvent {
 }
 
 impl IssueLike for PrEvent {
-    fn states_history(&self) -> Option<&Vec<IssueState>> { self.states_history.as_ref() }
-    fn labels_history(&self) -> Option<&Vec<IssueLabel>> { self.labels_history.as_ref() }
-    fn repository(&self) -> &String { &self.repository }
-    fn issue_number(&self) -> i64 { self.pr_number }
-    fn author_id(&self) -> i64 { self.author_id }
+    fn states_history(&self) -> Option<&Vec<IssueState>> {
+        self.states_history.as_ref()
+    }
+    fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
+        self.labels_history.as_ref()
+    }
+    fn repository(&self) -> &String {
+        &self.repository
+    }
+    fn issue_number(&self) -> i64 {
+        self.pr_number
+    }
+    fn author_id(&self) -> i64 {
+        self.author_id
+    }
+    fn is_pr(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -135,7 +148,6 @@ impl PrEvent {
     }
 }
 
-
 impl Display for PrEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -162,7 +174,8 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
         let repository: String = row.try_get("repository")?;
         let pr_number: i64 = row.try_get("pr")?;
         let state: String = row.try_get("state")?;
-        let timestamp: DateTime<Utc> = DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
+        let timestamp: DateTime<Utc> =
+            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
         let merge_sha: Option<String> = row.try_get("merge_sha")?;
         let author_id: i64 = row.try_get("author_id")?;
 
@@ -192,17 +205,19 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
 }
 
 impl PullRequestStatus {
-    pub fn from_str(value: &str, time: DateTime<Utc>, merge_sha: Option<String>) -> Option<Self> {
+    pub fn from_parts(value: &str, time: DateTime<Utc>, merge_sha: Option<String>) -> Option<Self> {
         match value {
             "open" => Some(PullRequestStatus::Open { time }),
             "closed" => Some(PullRequestStatus::Closed { time }),
-            "merged" => {
-                if let Some(merge_sha) = merge_sha {
-                    Some(PullRequestStatus::Merged { merge_sha, time })
-                } else {
-                    panic!("Merge SHA is required for merged state");
-                }
-            }
+            "merged" => merge_sha
+                .map(|sha| PullRequestStatus::Merged {
+                    merge_sha: sha,
+                    time,
+                })
+                .or_else(|| {
+                    log::warn!("Merge SHA is required for merged state, but was not provided.");
+                    None
+                }),
             "S-waiting-on-review" => Some(PullRequestStatus::WaitingForReview { time }),
             "S-waiting-on-bors" => Some(PullRequestStatus::WaitingForBors { time }),
             "S-waiting-on-author" => Some(PullRequestStatus::WaitingForAuthor { time }),
@@ -230,7 +245,7 @@ impl PullRequestStatus {
     ) -> Option<PullRequestStatus> {
         vector
             .iter()
-            .find_map(|label| PullRequestStatus::from_str(label, time, merge_sha.clone()))
+            .find_map(|label| PullRequestStatus::from_parts(label, time, merge_sha.clone()))
     }
 }
 
