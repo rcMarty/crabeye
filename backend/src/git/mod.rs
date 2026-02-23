@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
@@ -41,6 +40,7 @@ impl SyncHandler {
             owner,
             repository_name,
             token,
+            database.clone(),
         )
             .unwrap();
         Self {
@@ -120,17 +120,42 @@ impl SyncHandler {
     }
 
     pub async fn backfill_missing_history(&self) -> anyhow::Result<()> {
-        let must_be_backfilled = self.database.get_issues_without_history().await?;
+        let mut must_be_backfilled = self.database.get_issues_without_history().await?;
         log::info!(
             "Found {} PR events without history, starting backfilling",
             must_be_backfilled.len()
         );
 
         let timestamp_start = Utc::now();
-        let _filled = self.github.process_backfill(must_be_backfilled).await;
+        let mut duration_backfill = chrono::Duration::zero();
+        let mut duration_db = chrono::Duration::zero();
+
+        for issue_chunk in must_be_backfilled.chunks_mut(100) {
+            let backfill_start = Utc::now();
+            self.github.process_backfill(issue_chunk).await;
+            duration_backfill += Utc::now().signed_duration_since(backfill_start);
+
+            let db_start = Utc::now();
+            self.database.insert_history(issue_chunk).await?;
+            duration_db += Utc::now().signed_duration_since(db_start);
+        }
+
+        let timestamp_end = Utc::now();
+
+
+        self.log_duration(
+            timestamp_end - duration_backfill,
+            timestamp_end,
+            "Backfill duration (fetching history from github and processing it)",
+        );
+        self.log_duration(
+            timestamp_end - duration_db,
+            timestamp_end,
+            "Backfill duration (inserting history to database)",
+        );
         self.log_duration(
             timestamp_start,
-            Utc::now(),
+            timestamp_end,
             "Backfilling history for issues: ",
         );
 

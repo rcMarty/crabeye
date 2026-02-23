@@ -49,6 +49,27 @@ pub struct BackfillRecord {
     pub is_pr: bool,
 }
 
+impl IssueLike for BackfillRecord {
+    fn states_history(&self) -> Option<&Vec<IssueState>> {
+        self.states_history.as_ref()
+    }
+    fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
+        self.labels_history.as_ref()
+    }
+    fn repository(&self) -> &String {
+        &self.repository
+    }
+    fn issue_number(&self) -> i64 {
+        self.issue_number
+    }
+    fn author_id(&self) -> i64 {
+        self.author_id
+    }
+    fn is_pr(&self) -> bool {
+        self.is_pr
+    }
+}
+
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for BackfillRecord {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         Ok(BackfillRecord {

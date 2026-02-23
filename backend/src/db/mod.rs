@@ -319,7 +319,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             && events.iter().all(|event| event.labels_history.is_some())
         {
             self.insert_issues_history(events, &mut tx).await?;
-        } else {}
+        }
         tx.commit().await?;
 
         Ok(())
@@ -463,7 +463,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             log::warn!("Some events are missing labels_history or states_history. Only inserting events with complete history. Total: {}, with complete history: {}", history.len(), ok_history.len());
             self.insert_issues_history(ok_history.as_ref(), &mut tx)
                 .await?;
-
+            tx.commit().await?;
             return Ok(());
         }
 
@@ -475,74 +475,67 @@ WHERE issues.timestamp < EXCLUDED.timestamp
     async fn insert_issues_history<'c, T: IssueLike>(
         &self,
         events: &[T],
-        tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'c, Postgres>,
     ) -> Result<()> {
-        assert!(
-            events.iter().all(|event| event.labels_history().is_some()),
-            "All events must have labels_history"
-        );
-        assert!(
-            events.iter().all(|event| event.states_history().is_some()),
-            "All events must have states_history"
-        );
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_labels_history
-        let total_labels: usize = events
-            .iter()
-            .map(|e| {
-                e.labels_history()
-                    .as_ref()
-                    .expect("No Labels history for events")
-                    .len()
-            })
-            .sum();
-        let mut repos: Vec<&str> = Vec::with_capacity(total_labels);
-        let mut issues: Vec<i64> = Vec::with_capacity(total_labels);
-        let mut labels: Vec<&str> = Vec::with_capacity(total_labels);
-        let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_labels);
-        let mut actions: Vec<&str> = Vec::with_capacity(total_labels);
-        let mut is_prs: Vec<bool> = Vec::with_capacity(total_labels);
+        if events.iter().all(|e| e.labels_history().is_some()) {
+            let total_labels: usize = events
+                .iter()
+                .map(|e| {
+                    e.labels_history()
+                        .as_ref()
+                        .expect("No Labels history for events")
+                        .len()
+                })
+                .sum();
+            let mut repos: Vec<&str> = Vec::with_capacity(total_labels);
+            let mut issues: Vec<i64> = Vec::with_capacity(total_labels);
+            let mut labels: Vec<&str> = Vec::with_capacity(total_labels);
+            let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_labels);
+            let mut actions: Vec<&str> = Vec::with_capacity(total_labels);
+            let mut is_prs: Vec<bool> = Vec::with_capacity(total_labels);
 
-        for e in events {
-            let repo_str = e.repository().as_str();
-            let issue_num = e.issue_number();
+            for e in events {
+                let repo_str = e.repository().as_str();
+                let issue_num = e.issue_number();
 
-            for l in e
-                .labels_history()
-                .expect("Labels history is missing for some events")
-            {
-                repos.push(repo_str);
-                issues.push(issue_num);
-                labels.push(l.label.as_str());
-                timestamps.push(l.timestamp);
-                actions.push(l.action.as_str());
-                is_prs.push(e.is_pr());
+                for l in e
+                    .labels_history()
+                    .expect("Labels history is missing for some events")
+                {
+                    repos.push(repo_str);
+                    issues.push(issue_num);
+                    labels.push(l.label.as_str());
+                    timestamps.push(l.timestamp);
+                    actions.push(l.action.as_str());
+                    is_prs.push(e.is_pr());
+                }
             }
-        }
 
-        assert_eq!(
-            labels.len(),
-            timestamps.len(),
-            "Labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            labels.len(),
-            actions.len(),
-            "Labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            labels.len(),
-            "Repos, labels, timestamps and actions must have the same length"
-        );
-        assert_eq!(
-            issues.len(),
-            labels.len(),
-            "Issues, labels, timestamps and actions must have the same length"
-        );
+            assert_eq!(
+                labels.len(),
+                timestamps.len(),
+                "Labels, timestamps and actions must have the same length"
+            );
+            assert_eq!(
+                labels.len(),
+                actions.len(),
+                "Labels, timestamps and actions must have the same length"
+            );
+            assert_eq!(
+                repos.len(),
+                labels.len(),
+                "Repos, labels, timestamps and actions must have the same length"
+            );
+            assert_eq!(
+                issues.len(),
+                labels.len(),
+                "Issues, labels, timestamps and actions must have the same length"
+            );
 
-        sqlx::query!(
+            sqlx::query!(
             r#"
 INSERT INTO issue_labels_history (repository,issue, label,timestamp, action,is_pr)
 SELECT
@@ -563,61 +556,65 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
             &actions as &[&str],
             &is_prs,
         )
-            .execute(&mut **tx)
-            .await?;
+                .execute(&mut **tx)
+                .await?;
+        } else {
+            log::warn!("Some events are missing labels_history. Skipping labels history insertion for these events.");
+        }
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_state_history
 
-        let total_states: usize = events
-            .iter()
-            .map(|e| {
-                e.states_history()
-                    .as_ref()
-                    .expect("No States history for events")
-                    .len()
-            })
-            .sum();
+        if events.iter().all(|e| e.states_history().is_some()) {
+            let total_states: usize = events
+                .iter()
+                .map(|e| {
+                    e.states_history()
+                        .as_ref()
+                        .expect("No States history for events")
+                        .len()
+                })
+                .sum();
 
-        let mut repos: Vec<&str> = Vec::with_capacity(total_states);
-        let mut issues: Vec<i64> = Vec::with_capacity(total_states);
-        let mut states: Vec<&str> = Vec::with_capacity(total_states);
-        let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_states);
-        let mut is_prs: Vec<bool> = Vec::with_capacity(total_states);
+            let mut repos: Vec<&str> = Vec::with_capacity(total_states);
+            let mut issues: Vec<i64> = Vec::with_capacity(total_states);
+            let mut states: Vec<&str> = Vec::with_capacity(total_states);
+            let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_states);
+            let mut is_prs: Vec<bool> = Vec::with_capacity(total_states);
 
-        for e in events {
-            let repo_str = e.repository().as_str();
-            let issue_num = e.issue_number();
+            for e in events {
+                let repo_str = e.repository().as_str();
+                let issue_num = e.issue_number();
 
-            for s in e
-                .states_history()
-                .expect("States history is missing for some events")
-            {
-                repos.push(repo_str);
-                issues.push(issue_num);
-                states.push(s.state.as_str());
-                timestamps.push(s.timestamp);
-                is_prs.push(e.is_pr());
+                for s in e
+                    .states_history()
+                    .expect("States history is missing for some events")
+                {
+                    repos.push(repo_str);
+                    issues.push(issue_num);
+                    states.push(s.state.as_str());
+                    timestamps.push(s.timestamp);
+                    is_prs.push(e.is_pr());
+                }
             }
-        }
 
-        assert_eq!(
-            repos.len(),
-            issues.len(),
-            "Repos, issues, states and timestamps must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            states.len(),
-            "Repos, issues, states and timestamps must have the same length"
-        );
-        assert_eq!(
-            repos.len(),
-            timestamps.len(),
-            "Repos, issues, states and timestamps must have the same length"
-        );
+            assert_eq!(
+                repos.len(),
+                issues.len(),
+                "Repos, issues, states and timestamps must have the same length"
+            );
+            assert_eq!(
+                repos.len(),
+                states.len(),
+                "Repos, issues, states and timestamps must have the same length"
+            );
+            assert_eq!(
+                repos.len(),
+                timestamps.len(),
+                "Repos, issues, states and timestamps must have the same length"
+            );
 
-        sqlx::query!(
+            sqlx::query!(
             r#"
 INSERT INTO issue_event_history (repository, issue, event, timestamp, is_pr)
 SELECT
@@ -641,8 +638,11 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             &timestamps,
             &is_prs,
         )
-            .execute(&mut **tx)
-            .await?;
+                .execute(&mut **tx)
+                .await?;
+        } else {
+            log::warn!("Some events are missing states_history. Skipping states history insertion for these events.");
+        }
 
         Ok(())
     }
@@ -989,7 +989,7 @@ select count(*) as count from (
 
 /// part where is querying from database misc functions
 impl Database {
-    /// Get the timestamp of the last PR event in the database
+    /// Get the timestamp of the last Issue / Pr event in the database
     pub async fn get_last_issue_event_timestamp(
         &self,
         repository: &str,
@@ -998,7 +998,7 @@ impl Database {
             r#"
 SELECT MAX(timestamp) as timestamp
 FROM issue_event_history
-WHERE is_pr = true AND repository = $1
+WHERE repository = $1
 "#,
             repository
         )
@@ -1049,5 +1049,21 @@ WHERE github_name ilike $1
             .await?;
 
         Ok(records)
+    }
+
+    pub async fn get_last_update(&self, repository: &str, issue: i64) -> Result<Option<NaiveDateTime>> {
+        let record = sqlx::query!(
+            r#"
+SELECT MAX(timestamp) as timestamp
+FROM issue_event_history
+WHERE repository = $1 AND issue = $2
+"#,
+            repository,
+            issue
+        )
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(record.timestamp)
     }
 }

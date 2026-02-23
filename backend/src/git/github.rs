@@ -20,12 +20,14 @@ use secrecy::SecretString;
 use serde::Serialize;
 use std::fmt::format;
 use std::io::Write;
+use std::sync::Arc;
 
 pub struct GitHubApi {
     repository_identifier: String,
     owner: String,
     repository: String,
     octocrab: Octocrab,
+    database: crate::db::Database,
 }
 
 /// Public functions about getting all the data from api
@@ -67,7 +69,6 @@ impl GitHubApi {
             .collect::<Vec<team_member::TeamMember>>();
         Ok(authorized_users)
     }
-
 
     pub async fn get_issues(
         &self,
@@ -312,16 +313,16 @@ impl GitHubApi {
         }
     }
 
-    pub async fn process_backfill(
+    pub async fn process_backfill<'a>(
         &self,
-        mut records_from_db: Vec<BackfillRecord>,
-    ) -> Vec<BackfillRecord> {
+        records_from_db: &mut [BackfillRecord],
+    ) {
         with_progress_bar_async(
             records_from_db.len(),
             Some("Processing backfill records".parse().unwrap()),
             async |bar_opt, multi| {
                 let bar = bar_opt.unwrap();
-                for record in &mut records_from_db {
+                for record in records_from_db {
                     bar.inc(1);
                     bar.set_message(format!(
                         "Processing backfill (issue #{})",
@@ -340,13 +341,20 @@ impl GitHubApi {
         )
             .await
             .unwrap();
-
-        records_from_db
     }
 }
 
 /// private fetching functions and parsing
 impl GitHubApi {
+    fn should_timeline_requests_continue(response: &[TimelineEvent], last_timestamp: &Option<chrono::NaiveDateTime>) -> bool {
+        match last_timestamp {
+            Some(last_ts) => response
+                .iter()
+                .any(|event| event.created_at.is_some_and(|ts| ts.naive_utc() <= *last_ts)),
+            None => false,
+        }
+    }
+
     async fn get_event_timeline(&self, event_number: u64) -> anyhow::Result<Vec<TimelineEvent>> {
         let mut events: Vec<TimelineEvent> = Vec::new();
         let mut page = 1u32;
@@ -382,6 +390,16 @@ impl GitHubApi {
             events.extend(response.items);
             return Ok(events);
         }
+
+        // should i download more pages because of history?
+        let last_timestamp = self
+            .database
+            .get_last_update(self.repository_identifier.as_str(), event_number as i64)
+            .await?;
+        if Self::should_timeline_requests_continue(&response.items, &last_timestamp) {
+            events.extend(response.items);
+            return Ok(events);
+        };
 
         events.extend(response.items);
 
@@ -421,6 +439,11 @@ impl GitHubApi {
             if response.items.is_empty() {
                 break;
             }
+
+            if Self::should_timeline_requests_continue(&response.items, &last_timestamp) {
+                events.extend(response.items);
+                return Ok(events);
+            };
 
             events.extend(response.items);
         }
@@ -498,7 +521,9 @@ impl GitHubApi {
                                     .into_iter()
                                     .map(|label| label.name.to_string())
                                     .collect::<Vec<String>>(),
-                                pr.created_at.expect("Missing created time"),
+                                pr.updated_at
+                                    .or(pr.created_at)
+                                    .expect("Missing created time"),
                                 None,
                             )
                                 .unwrap_or(PullRequestStatus::Open {
@@ -620,6 +645,7 @@ impl GitHubApi {
         owner: String,
         repository: String,
         token: SecretString,
+        database: crate::db::Database,
     ) -> anyhow::Result<Self> {
         let octocrab = Octocrab::builder().personal_token(token).build()?;
         Ok(Self {
@@ -627,14 +653,15 @@ impl GitHubApi {
             owner,
             repository,
             octocrab,
+            database,
         })
     }
 
     fn append_to_file(content: &str) {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
-            .create(true) // Create file if it doesn't exist
-            .open("ranal_log.txt")
+            .create(true)
+            .open("ranal_octocrab_errors.log")
             .unwrap();
 
         file.write_all(content.as_bytes()).unwrap();
