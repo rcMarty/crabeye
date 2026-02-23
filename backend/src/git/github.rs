@@ -313,7 +313,7 @@ impl GitHubApi {
         }
     }
 
-    pub async fn process_backfill<'a>(
+    pub async fn process_backfill(
         &self,
         records_from_db: &mut [BackfillRecord],
     ) {
@@ -772,7 +772,7 @@ impl GitHubApi {
                         .context(format!("cannot get label from Timeline event{:?}", event))?
                         .naive_utc();
                     vec.push(crate::db::model::issue::IssueState {
-                        state: "open".to_string(),
+                        state: "committed".to_string(),
                         timestamp: time,
                     });
                 }
@@ -781,18 +781,30 @@ impl GitHubApi {
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
+                    vec.push(crate::db::model::issue::IssueState {
+                        state: "commented".to_string(),
+                        timestamp: time,
+                    });
                 }
                 models::Event::Reopened => {
                     let time = event
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
+                    vec.push(crate::db::model::issue::IssueState {
+                        state: "reopened".to_string(),
+                        timestamp: time,
+                    });
                 }
                 models::Event::Reviewed => {
                     let time = event
                         .updated_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
+                    vec.push(crate::db::model::issue::IssueState {
+                        state: "reviewed".to_string(),
+                        timestamp: time,
+                    });
                 }
                 _ => {
                     log::trace!("not interesting timeline event: {:#?}", event.event);

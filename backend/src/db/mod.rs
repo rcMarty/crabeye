@@ -202,16 +202,16 @@ WHERE issues.timestamp < EXCLUDED.timestamp
         // V SQL použijeme repository a issue jako konstanty ($1, $2) a rozbalíme jen zbytek
         sqlx::query!(
             r#"
-            INSERT INTO issue_event_history (repository, issue, is_pr, event, timestamp)
-            SELECT
-                $1,        -- repository (konstanta)
-                $2,        -- issue (konstanta)
-                true,      -- is_pr
-                t.event,   -- z UNNEST
-                t.timestamp -- z UNNEST
-            FROM UNNEST($3::TEXT[], $4::TIMESTAMP[])
-                as t(event, timestamp)
-            ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
+INSERT INTO issue_event_history (repository, issue, is_pr, event, timestamp)
+SELECT
+    $1,        -- repository (konstanta)
+    $2,        -- issue (konstanta)
+    true,      -- is_pr
+    t.event,   -- z UNNEST
+    t.timestamp -- z UNNEST
+FROM UNNEST($3::TEXT[], $4::TIMESTAMP[])
+    as t(event, timestamp)
+ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
             event.repository,
             event.pr_number,
@@ -683,9 +683,10 @@ impl Database {
 
         let ret = sqlx::query_as::<_, PullRequestStatus>(
             r#"
-SELECT distinct event as state, timestamp
-FROM issue_event_history
-WHERE repository = $1 and issue = $2 and timestamp between $3 and $4
+SELECT distinct hist.event as state, hist.timestamp as timestamp, iss.merge_sha as merge_sha
+FROM issue_event_history hist
+join issues as iss using (repository, issue)
+WHERE repository = $1 and issue = $2 and hist.timestamp between $3 and $4
 ORDER BY timestamp DESC
 "#,
         )
