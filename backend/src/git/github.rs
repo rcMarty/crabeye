@@ -124,7 +124,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                             page += 1;
                         }
                     }
@@ -178,13 +178,13 @@ impl GitHubApi {
                                 pr,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                .await?;
+                    .await?;
                 Ok((parsed_issues, parsed_users))
             }
         }
@@ -228,10 +228,10 @@ impl GitHubApi {
                     match response.items.last().unwrap() {
                         pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
-                        {
-                            log::info!("No more pull requests to process, stopping at page {page}");
-                            break 'pageLoop;
-                        }
+                            {
+                                log::info!("No more pull requests to process, stopping at page {page}");
+                                break 'pageLoop;
+                            }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!(
@@ -249,7 +249,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                             page += 1;
                         }
                     }
@@ -307,7 +307,7 @@ impl GitHubApi {
                         Ok(())
                     },
                 )
-                .await?;
+                    .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
@@ -336,8 +336,8 @@ impl GitHubApi {
                 Ok(())
             },
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 }
 
@@ -458,7 +458,7 @@ impl GitHubApi {
         issue_number: u64,
     ) -> (
         Option<Vec<crate::db::model::issue::IssueLabel>>,
-        Option<Vec<crate::db::model::issue::IssueState>>,
+        Option<Vec<crate::db::model::issue::IssueEvent>>,
     ) {
         match self.get_event_timeline(issue_number).await {
             Ok(timeline) => (
@@ -528,9 +528,9 @@ impl GitHubApi {
                                     .expect("Missing created time"),
                                 None,
                             )
-                            .unwrap_or(PullRequestStatus::Open {
-                                time: pr.created_at.expect("Missing created time"),
-                            })
+                                .unwrap_or(PullRequestStatus::Open {
+                                    time: pr.created_at.expect("Missing created time"),
+                                })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
@@ -555,7 +555,7 @@ impl GitHubApi {
                             panic!("Invalid PR #{} state: {s:?}, {merged_at:?}", pr.number)
                         }
                     },
-                    states_history: states,
+                    events_history: states,
                     labels_history: labels,
                 };
                 parsed_prs.push(parsed);
@@ -564,8 +564,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 
     async fn parse_issues(
@@ -623,7 +623,7 @@ impl GitHubApi {
                     issue_number: issue.number as i64,
                     author_id: issue.user.id.0 as i64,
                     status: last_state,
-                    states_history: states,
+                    events_history: states,
                     labels_history: labels,
                 };
 
@@ -633,8 +633,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 }
 
@@ -751,7 +751,7 @@ impl GitHubApi {
         &self,
         issue_number: u64,
         timeline: &[TimelineEvent],
-    ) -> anyhow::Result<Vec<crate::db::model::issue::IssueState>> {
+    ) -> anyhow::Result<Vec<crate::db::model::issue::IssueEvent>> {
         let mut vec = Vec::new();
         for event in timeline {
             match event.event {
@@ -760,8 +760,8 @@ impl GitHubApi {
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "merged".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "merged".to_string(),
                         timestamp: time,
                     });
                 }
@@ -770,8 +770,8 @@ impl GitHubApi {
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "closed".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "closed".to_string(),
                         timestamp: time,
                     });
                 }
@@ -783,8 +783,8 @@ impl GitHubApi {
                         .date
                         .context(format!("cannot get label from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "committed".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "committed".to_string(),
                         timestamp: time,
                     });
                 }
@@ -793,8 +793,8 @@ impl GitHubApi {
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "commented".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "commented".to_string(),
                         timestamp: time,
                     });
                 }
@@ -803,8 +803,8 @@ impl GitHubApi {
                         .created_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "reopened".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "reopened".to_string(),
                         timestamp: time,
                     });
                 }
@@ -813,8 +813,8 @@ impl GitHubApi {
                         .updated_at
                         .context(format!("cannot get time from Timeline event{:?}", event))?
                         .naive_utc();
-                    vec.push(crate::db::model::issue::IssueState {
-                        state: "reviewed".to_string(),
+                    vec.push(crate::db::model::issue::IssueEvent {
+                        event: "reviewed".to_string(),
                         timestamp: time,
                     });
                 }

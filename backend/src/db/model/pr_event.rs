@@ -1,4 +1,4 @@
-use crate::db::model::issue::{Issue, IssueLabel, IssueState};
+use crate::db::model::issue::{Issue, IssueLabel, IssueEvent};
 use crate::db::model::team_member::TeamMember;
 use crate::db::model::IssueLike;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -14,13 +14,15 @@ pub struct PrEvent {
     pub pr_number: i64,
     pub author_id: i64,
     pub state: PullRequestStatus,
-    pub states_history: Option<Vec<IssueState>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events_history: Option<Vec<IssueEvent>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels_history: Option<Vec<IssueLabel>>,
 }
 
 impl IssueLike for PrEvent {
-    fn states_history(&self) -> Option<&Vec<IssueState>> {
-        self.states_history.as_ref()
+    fn events_history(&self) -> Option<&Vec<IssueEvent>> {
+        self.events_history.as_ref()
     }
     fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
         self.labels_history.as_ref()
@@ -198,7 +200,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
             pr_number,
             author_id,
             state: status,
-            states_history: None,
+            events_history: None,
             labels_history: None,
         })
     }

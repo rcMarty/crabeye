@@ -1,9 +1,9 @@
 use crate::db::model::IssueLike;
 use anyhow::anyhow;
+use chrono::format::Numeric::Timestamp;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{FromRow, Row};
 use std::str::FromStr;
-use chrono::format::Numeric::Timestamp;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct Issue {
@@ -11,12 +11,14 @@ pub struct Issue {
     pub issue_number: i64,
     pub author_id: i64,
     pub status: IssueStatus,
-    pub states_history: Option<Vec<IssueState>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events_history: Option<Vec<IssueEvent>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels_history: Option<Vec<IssueLabel>>,
 }
 impl IssueLike for Issue {
-    fn states_history(&self) -> Option<&Vec<IssueState>> {
-        self.states_history.as_ref()
+    fn events_history(&self) -> Option<&Vec<IssueEvent>> {
+        self.events_history.as_ref()
     }
     fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
         self.labels_history.as_ref()
@@ -80,9 +82,11 @@ impl FromRow<'_, sqlx::postgres::PgRow> for IssueLabel {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, sqlx::FromRow)]
-pub struct IssueState {
-    pub state: String,
+#[derive(
+    Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, sqlx::FromRow,
+)]
+pub struct IssueEvent {
+    pub event: String,
     pub timestamp: NaiveDateTime,
 }
 

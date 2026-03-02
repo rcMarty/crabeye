@@ -5,6 +5,7 @@ pub mod app_state;
 pub mod docs;
 pub mod review;
 pub mod webhooks;
+pub mod issues;
 
 /// Optional pagination parameters
 /// Used in multiple endpoints

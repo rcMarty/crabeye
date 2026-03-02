@@ -3,6 +3,7 @@ pub mod model;
 
 // src/db/mod.rs
 use crate::api::Pagination;
+use crate::db::model::issue::{IssueLabel, IssueEvent, IssueStatus};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{
     FileActivity, PrEvent, PullRequestStatus, PullRequestStatusRequest,
@@ -15,7 +16,6 @@ use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
-use crate::db::model::issue::{IssueLabel, IssueState, IssueStatus};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -189,15 +189,15 @@ WHERE issues.timestamp < EXCLUDED.timestamp
         // insert to issue_event_history
 
         // Check if i must insert history
-        if event.states_history.is_none() || event.labels_history.is_none() {
+        if event.events_history.is_none() || event.labels_history.is_none() {
             log::warn!("Event for PR #{} is missing states_history or labels_history. Skipping history insertion for this event.", event.pr_number);
             tx.commit().await?;
             return Ok(());
         }
 
-        let states_history = event.states_history.as_ref().unwrap();
+        let states_history = event.events_history.as_ref().unwrap();
 
-        let history_events: Vec<&str> = states_history.iter().map(|s| s.state.as_str()).collect();
+        let history_events: Vec<&str> = states_history.iter().map(|s| s.event.as_str()).collect();
         let history_timestamps: Vec<_> = states_history.iter().map(|s| s.timestamp).collect();
 
         // V SQL použijeme repository a issue jako konstanty ($1, $2) a rozbalíme jen zbytek
@@ -316,7 +316,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             .execute(&mut *tx)
             .await?;
 
-        if events.iter().all(|event| event.states_history.is_some())
+        if events.iter().all(|event| event.events_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
         {
             self.insert_issues_history(events, &mut tx).await?;
@@ -436,7 +436,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             .execute(&mut *tx)
             .await?;
 
-        if events.iter().all(|event| event.states_history.is_some())
+        if events.iter().all(|event| event.events_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
         {
             self.insert_issues_history(events, &mut tx).await?;
@@ -453,12 +453,12 @@ WHERE issues.timestamp < EXCLUDED.timestamp
         let mut tx = self.pool.begin().await?;
 
         let check = history.iter().all(|issue| issue.labels_history().is_some())
-            && history.iter().all(|issue| issue.states_history().is_some());
+            && history.iter().all(|issue| issue.events_history().is_some());
         if !check {
             let ok_history = history
                 .iter()
                 .filter(|&issue| {
-                    issue.labels_history().is_some() && issue.states_history().is_some()
+                    issue.labels_history().is_some() && issue.events_history().is_some()
                 })
                 .collect::<Vec<_>>();
             log::warn!("Some events are missing labels_history or states_history. Only inserting events with complete history. Total: {}, with complete history: {}", history.len(), ok_history.len());
@@ -536,7 +536,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             );
 
             sqlx::query!(
-            r#"
+                r#"
 INSERT INTO issue_labels_history (repository,issue, label,timestamp, action,is_pr)
 SELECT
     t.repository,
@@ -549,13 +549,13 @@ FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $
      as t(repository, issue, label, timestamp, action, is_pr)
 ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
 "#,
-            &repos as &[&str],
-            &issues,
-            &labels as &[&str],
-            &timestamps,
-            &actions as &[&str],
-            &is_prs,
-        )
+                &repos as &[&str],
+                &issues,
+                &labels as &[&str],
+                &timestamps,
+                &actions as &[&str],
+                &is_prs,
+            )
                 .execute(&mut **tx)
                 .await?;
         } else {
@@ -565,11 +565,11 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_state_history
 
-        if events.iter().all(|e| e.states_history().is_some()) {
+        if events.iter().all(|e| e.events_history().is_some()) {
             let total_states: usize = events
                 .iter()
                 .map(|e| {
-                    e.states_history()
+                    e.events_history()
                         .as_ref()
                         .expect("No States history for events")
                         .len()
@@ -587,12 +587,12 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
                 let issue_num = e.issue_number();
 
                 for s in e
-                    .states_history()
+                    .events_history()
                     .expect("States history is missing for some events")
                 {
                     repos.push(repo_str);
                     issues.push(issue_num);
-                    states.push(s.state.as_str());
+                    states.push(s.event.as_str());
                     timestamps.push(s.timestamp);
                     is_prs.push(e.is_pr());
                 }
@@ -615,7 +615,7 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
             );
 
             sqlx::query!(
-            r#"
+                r#"
 INSERT INTO issue_event_history (repository, issue, event, timestamp, is_pr)
 SELECT
     t.repo,
@@ -632,12 +632,12 @@ FROM UNNEST(
 ) AS t(repo, issue, event, ts, is_pr)
 ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
-            &repos as &[&str],
-            &issues,
-            &states as &[&str],
-            &timestamps,
-            &is_prs,
-        )
+                &repos as &[&str],
+                &issues,
+                &states as &[&str],
+                &timestamps,
+                &is_prs,
+            )
                 .execute(&mut **tx)
                 .await?;
         } else {
@@ -677,11 +677,11 @@ impl Database {
         repository: &str,
         pr: i64,
         timestamp: NaiveDate,
-    ) -> Result<Vec<IssueState>> {
+    ) -> Result<Vec<IssueEvent>> {
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
-        let ret = sqlx::query_as::<_, IssueState>(
+        let ret = sqlx::query_as::<_, IssueEvent>(
             r#"
 SELECT distinct hist.event as state, hist.timestamp as timestamp
 FROM issue_event_history hist
@@ -700,14 +700,13 @@ ORDER BY timestamp DESC
         Ok(ret)
     }
 
-    pub async fn get_pr_state_at(
+    pub async fn get_pr_history_from(
         &self,
         repository: &str,
         pr: i64,
         timestamp: NaiveDate,
-    ) -> Result<PrEvent> {
+    ) -> Result<Option<PrEvent>> {
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
-        let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
         let labels = sqlx::query_as::<_, IssueLabel>(
             r#"
@@ -718,7 +717,7 @@ SELECT
 FROM (
          SELECT DISTINCT ON (issue, label) *
          FROM issue_labels_history
-         WHERE issue = $2 and repository = $1 and timestamp between $3 and $4 and is_pr = true and label like 'S-%'
+         WHERE issue = $2 and repository = $1 and timestamp <= $3 and is_pr = true and label like 'S-%'
          ORDER BY issue, label, timestamp DESC
      ) subquery
 WHERE action = 'ADDED';
@@ -727,25 +726,22 @@ WHERE action = 'ADDED';
             .bind(repository)
             .bind(pr)
             .bind(timestamp_start)
-            .bind(timestamp_end)
             .fetch_all(&self.pool)
             .await?;
 
-        let states = sqlx::query_as::<_, IssueState>(
+        let states = sqlx::query_as::<_, IssueEvent>(
             r#"
-SELECT distinct hist.event as state, hist.timestamp as timestamp
+SELECT distinct hist.event as event, hist.timestamp as timestamp
 FROM issue_event_history hist
-WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp between $3 and
-    $4
+WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp <= $3 and hist.is_pr = true
 ORDER BY timestamp DESC
 "#,
         )
-        .bind(repository)
-        .bind(pr)
-        .bind(timestamp_start)
-        .bind(timestamp_end)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(repository)
+            .bind(pr)
+            .bind(timestamp_start)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut pr = sqlx::query_as::<_, PrEvent>(
             r#"
@@ -754,16 +750,16 @@ FROM issues
 WHERE repository = $1 and issue = $2 and is_pr = true
 "#,
         )
-        .bind(repository)
-        .bind(pr)
-        .fetch_one(&self.pool)
-        .await?;
+            .bind(repository)
+            .bind(pr)
+            .fetch_one(&self.pool)
+            .await?;
 
         pr.labels_history = Some(labels);
-        pr.states_history = Some(states);
+        pr.events_history = Some(states);
 
         log::debug!("return value from get pr state at: \n{:?}", pr.clone());
-        Ok(pr)
+        Ok(Some(pr))
     }
 
     /// Count PR state occurrences for a given day.
@@ -1022,7 +1018,7 @@ SELECT
     l.label     AS state,
     l.timestamp AS timestamp,
     c.merge_sha AS merge_sha,
-    c.github_id AS author_id
+    c.contributor_id AS author_id
 FROM current_waiting_labels l
 JOIN issues c ON l.issue = c.issue AND c.repository = $1
 WHERE l.action = 'ADDED'
@@ -1031,13 +1027,11 @@ OFFSET $2
 LIMIT $3;
         "#,
         )
-        .bind(repository)
-        .bind(offset)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let record = vec![]; // Placeholder for the actual query result, which is currently commented out.
+            .bind(repository)
+            .bind(offset)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
 
         log::debug!(
             "return value from get_prs_waiting_for_review: \n{:?}",

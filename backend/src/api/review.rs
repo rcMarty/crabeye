@@ -1,9 +1,9 @@
 use crate::api::app_state::AppState;
 use crate::api::{
-    PrCountParams, PrStateParams, PrTopFilesParams, ReviewParams, WaitingForReviewParams,
+    PrCountParams, PrTopFilesParams, PrStateParams, ReviewParams, WaitingForReviewParams,
 };
 use crate::db::model::paginated_response::PaginatedResponse;
-use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
+use crate::db::model::pr_event::{PrEvent};
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::Contributor;
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
@@ -23,9 +23,9 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description(
                     "Get users who made reviews on a specific file/path within a date range",
                 )
-                .tag("PR")
-                .response::<200, Json<PaginatedResponse<Contributor>>>()
-                .response::<500, (StatusCode, String)>()
+                    .tag("PR")
+                    .response::<200, Json<PaginatedResponse<Contributor>>>()
+                    .response::<500, (StatusCode, String)>()
             }),
         )
         .api_route(
@@ -47,20 +47,12 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             }),
         )
         .api_route(
-            "/issue-events",
-            get_with(issue_events, |op| {
-                op.description("Get the state of a Issue at a specific timestamp")
-                    .tag("Issue")
-                    .response::<200, Json<Vec<PullRequestStatus>>>()
-                    .response::<500, (StatusCode, String)>()
-            }),
-        )
-        .api_route(
-            "/pr-state",
-            get_with(pr_state, |op| {
+            "/pr-history",
+            get_with(pr_history, |op| {
                 op.description("Get the states and lables of a PR at a specific timestamp")
                     .tag("PR")
                     .response::<200, Json<PrEvent>>()
+                    .response::<404, (StatusCode, String)>()
                     .response::<500, (StatusCode, String)>()
             }),
         )
@@ -189,34 +181,27 @@ async fn prs_in_state(
 }
 
 #[debug_handler]
-async fn issue_events(
+async fn pr_history(
     State(app): State<AppState>,
     Query(params): Query<PrStateParams>,
 ) -> impl IntoApiResponse {
     match app
         .db
-        .get_issue_events_at(params.repository.as_str(), params.pr, params.timestamp)
+        .get_pr_history_from(params.repository.as_str(), params.pr, params.timestamp)
         .await
     {
-        Ok(counts) => (StatusCode::OK, Json(counts)).into_response(),
-        Err(err) => {
-            log::error!("Error getting file counts: {}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err.to_string())).into_response()
+        Ok(Some(counts)) => (StatusCode::OK, Json(counts)).into_response(),
+        Ok(None) => {
+            log::warn!("History in that timestamp for PR {} not found", params.pr);
+            (
+                StatusCode::NOT_FOUND,
+                Json(format!(
+                    "History for timestamp {} for PR {} not found",
+                    params.timestamp, params.pr
+                )),
+            )
+                .into_response()
         }
-    }
-}
-
-#[debug_handler]
-async fn pr_state(
-    State(app): State<AppState>,
-    Query(params): Query<PrStateParams>,
-) -> impl IntoApiResponse {
-    match app
-        .db
-        .get_pr_state_at(params.repository.as_str(), params.pr, params.timestamp)
-        .await
-    {
-        Ok(counts) => (StatusCode::OK, Json(counts)).into_response(),
         Err(err) => {
             log::error!("Error getting file counts: {}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err.to_string())).into_response()
