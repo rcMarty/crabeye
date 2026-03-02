@@ -2,6 +2,66 @@ use super::*;
 
 /// Read-only analytical queries for PRs, issues and file activity.
 impl Database {
+    // Změna: Místo slice IDček bereme rovnou jméno týmu jako string
+    pub async fn get_files_modified_by_team(
+        &self,
+        repository: &str,
+        team_name: &str,
+        from_timestamp: Option<NaiveDate>,
+        last_n_days: Option<i64>,
+        pagination: Pagination,
+    ) -> Result<PaginatedResponse<String>> {
+        let timestamp_end = from_timestamp.unwrap_or_else(|| Utc::now().date_naive()).and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
+        log::debug!("timestamp_ start {} end {}", timestamp_start, timestamp_end);
+
+        let (limit, offset) = pagination.limit_offset();
+
+        let count = sqlx::query!(
+        r#"
+SELECT COUNT(DISTINCT fa.file_path) as count
+FROM file_activity fa
+-- TADY JE TA MAGIE: Propojíme to s tabulkou týmů
+JOIN contributors_teams ct ON fa.contributor_id = ct.contributor_id
+WHERE fa.repository = $1
+  AND fa.timestamp BETWEEN $2 AND $3
+  AND ct.team = $4
+        "#,
+        repository,
+        timestamp_start,
+        timestamp_end,
+        team_name
+    )
+            .fetch_one(&self.pool)
+            .await?
+            .count
+            .unwrap_or(0) as usize;
+
+        let entries = sqlx::query_scalar::<_, String>(
+            r#"
+SELECT DISTINCT fa.file_path
+FROM file_activity fa
+JOIN contributors_teams ct ON fa.contributor_id = ct.contributor_id
+WHERE fa.repository = $1
+  AND fa.timestamp BETWEEN $2 AND $3
+  AND ct.team = $4
+ORDER BY fa.file_path
+OFFSET $5 LIMIT $6
+        "#,
+        )
+            .bind(repository)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .bind(team_name)
+            .bind(offset)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResponse::new(count, pagination, entries))
+    }
+
+
     /// Returns all distinct issue events recorded on the day that contains `timestamp`.
     ///
     /// Queries `issue_event_history` for rows where `is_pr = false`, filtered to the full
@@ -151,6 +211,7 @@ WHERE repository = $1 and issue = $2 and is_pr = true
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
+        //TODO to je naprosto špatně
         let record = sqlx::query!(
             r#"
 SELECT count(*) as count FROM issue_event_history

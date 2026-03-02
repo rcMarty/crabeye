@@ -26,3 +26,5 @@ test_repos/
 #exclude configs and databases
 .env
 data.db**
+
+*.log
