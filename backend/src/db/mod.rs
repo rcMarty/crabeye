@@ -15,6 +15,7 @@ use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
+use crate::db::model::issue::{IssueLabel, IssueState, IssueStatus};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -79,8 +80,8 @@ ON CONFLICT (github_id) DO UPDATE SET
             &github_names,
             &names
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         let teams: HashMap<&String, &Team> = team_members
             .iter()
@@ -109,8 +110,8 @@ kind = EXCLUDED.kind
             &team_subteams as &[Option<String>],
             &team_kinds as &[&str]
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!("DELETE FROM contributors_teams")
             .execute(&mut *tx)
@@ -131,8 +132,8 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
             &member_ids,
             &member_teams,
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
         Ok(())
@@ -154,8 +155,8 @@ where not exists (select 1 from contributors where github_id = $1);
                 user.github_name,
                 user.name
             )
-                .execute(&self.pool)
-                .await?;
+            .execute(&self.pool)
+            .await?;
         }
         Ok(())
     }
@@ -181,8 +182,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             event.get_merge_sha(),
             event.author_id
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // insert to issue_event_history
@@ -218,8 +219,8 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             &history_events as &[&str],
             &history_timestamps
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // 4. Insert do ISSUE_LABEL_HISTORY
@@ -251,8 +252,8 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
             &history_timestamps,
             &history_actions as &[&str]
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
@@ -312,8 +313,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             &merge_shas as &[Option<String>],
             &author_ids
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         if events.iter().all(|event| event.states_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
@@ -339,8 +340,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             user_id,
             activity.timestamp.naive_utc()
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -374,8 +375,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             &user_ids,
             &timestamps
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -432,8 +433,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             &current_states as &[&str],
             &timestamps
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         if events.iter().all(|event| event.states_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
@@ -477,7 +478,6 @@ WHERE issues.timestamp < EXCLUDED.timestamp
         events: &[T],
         tx: &mut sqlx::Transaction<'c, Postgres>,
     ) -> Result<()> {
-
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_labels_history
         if events.iter().all(|e| e.labels_history().is_some()) {
@@ -536,7 +536,7 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             );
 
             sqlx::query!(
-            r#"
+                r#"
 INSERT INTO issue_labels_history (repository,issue, label,timestamp, action,is_pr)
 SELECT
     t.repository,
@@ -549,15 +549,15 @@ FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $
      as t(repository, issue, label, timestamp, action, is_pr)
 ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
 "#,
-            &repos as &[&str],
-            &issues,
-            &labels as &[&str],
-            &timestamps,
-            &actions as &[&str],
-            &is_prs,
-        )
-                .execute(&mut **tx)
-                .await?;
+                &repos as &[&str],
+                &issues,
+                &labels as &[&str],
+                &timestamps,
+                &actions as &[&str],
+                &is_prs,
+            )
+            .execute(&mut **tx)
+            .await?;
         } else {
             log::warn!("Some events are missing labels_history. Skipping labels history insertion for these events.");
         }
@@ -615,7 +615,7 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
             );
 
             sqlx::query!(
-            r#"
+                r#"
 INSERT INTO issue_event_history (repository, issue, event, timestamp, is_pr)
 SELECT
     t.repo,
@@ -632,14 +632,14 @@ FROM UNNEST(
 ) AS t(repo, issue, event, ts, is_pr)
 ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
-            &repos as &[&str],
-            &issues,
-            &states as &[&str],
-            &timestamps,
-            &is_prs,
-        )
-                .execute(&mut **tx)
-                .await?;
+                &repos as &[&str],
+                &issues,
+                &states as &[&str],
+                &timestamps,
+                &is_prs,
+            )
+            .execute(&mut **tx)
+            .await?;
         } else {
             log::warn!("Some events are missing states_history. Skipping states history insertion for these events.");
         }
@@ -672,22 +672,56 @@ impl Database {
     /// - `Ok(Vec<String>)` with states found for that day (may be empty).
     /// - `Err(...)` on SQL/DB errors.
     //TEMP: Jaký byl stav konkrétního PR v daný timestamp?
-    pub async fn get_issue_state_at(
+    pub async fn get_issue_events_at(
         &self,
         repository: &str,
         pr: i64,
         timestamp: NaiveDate,
-    ) -> Result<Vec<PullRequestStatus>> {
+    ) -> Result<Vec<IssueState>> {
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
-        let ret = sqlx::query_as::<_, PullRequestStatus>(
+        let ret = sqlx::query_as::<_, IssueState>(
             r#"
-SELECT distinct hist.event as state, hist.timestamp as timestamp, iss.merge_sha as merge_sha
+SELECT distinct hist.event as state, hist.timestamp as timestamp
 FROM issue_event_history hist
-join issues as iss using (repository, issue)
-WHERE repository = $1 and issue = $2 and hist.timestamp between $3 and $4
+WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp between $3 and $4
 ORDER BY timestamp DESC
+"#,
+        )
+        .bind(repository)
+        .bind(pr)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .fetch_all(&self.pool)
+        .await?;
+
+        log::debug!("return value from get pr state at: \n{:?}", ret);
+        Ok(ret)
+    }
+
+    pub async fn get_pr_state_at(
+        &self,
+        repository: &str,
+        pr: i64,
+        timestamp: NaiveDate,
+    ) -> Result<PrEvent> {
+        let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+
+        let labels = sqlx::query_as::<_, IssueLabel>(
+            r#"
+SELECT
+    subquery.label as label,
+    subquery.timestamp as timestamp,
+    subquery.action as label_event
+FROM (
+         SELECT DISTINCT ON (issue, label) *
+         FROM issue_labels_history
+         WHERE issue = $2 and repository = $1 and timestamp between $3 and $4 and is_pr = true and label like 'S-%'
+         ORDER BY issue, label, timestamp DESC
+     ) subquery
+WHERE action = 'ADDED';
 "#,
         )
             .bind(repository)
@@ -697,8 +731,39 @@ ORDER BY timestamp DESC
             .fetch_all(&self.pool)
             .await?;
 
-        log::debug!("return value from get pr state at: \n{:?}", ret);
-        Ok(ret)
+        let states = sqlx::query_as::<_, IssueState>(
+            r#"
+SELECT distinct hist.event as state, hist.timestamp as timestamp
+FROM issue_event_history hist
+WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp between $3 and
+    $4
+ORDER BY timestamp DESC
+"#,
+        )
+        .bind(repository)
+        .bind(pr)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut pr = sqlx::query_as::<_, PrEvent>(
+            r#"
+SELECT repository as repository, issue as pr, current_state as state, timestamp as timestamp, merge_sha as merge_sha, contributor_id as author_id
+FROM issues
+WHERE repository = $1 and issue = $2 and is_pr = true
+"#,
+        )
+        .bind(repository)
+        .bind(pr)
+        .fetch_one(&self.pool)
+        .await?;
+
+        pr.labels_history = Some(labels);
+        pr.states_history = Some(states);
+
+        log::debug!("return value from get pr state at: \n{:?}", pr.clone());
+        Ok(pr)
     }
 
     /// Count PR state occurrences for a given day.
@@ -736,8 +801,8 @@ WHERE timestamp BETWEEN $1 AND $2
             state.to_string(),
             repository
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.count.unwrap())
     }
@@ -787,13 +852,13 @@ order by timestamp DESC
 LIMIT $5;
 "#,
         )
-            .bind(&ids)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(n)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(&ids)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(n)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(record)
     }
 
@@ -854,10 +919,10 @@ where github_id in
             timestamp_end,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
 
         let entries = sqlx::query_as::<_, Contributor>(
             r#"
@@ -875,14 +940,14 @@ where github_id in
         );
 "#,
         )
-            .bind(file_path)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(file_path)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(PaginatedResponse::new(count, pagination, entries))
     }
@@ -912,7 +977,7 @@ where github_id in
             pagination.per_page
         );
 
-        let (_limit, _offset) = pagination.limit_offset();
+        let (limit, offset) = pagination.limit_offset();
         let count = sqlx::query!(
             r#"
 select count(*) as count from (
@@ -935,49 +1000,41 @@ select count(*) as count from (
             .count
             .unwrap_or(0) as usize;
 
-        // TODO check this query
-        //         let record = sqlx::query_as::<_, PrEvent>(
-        //             r#"
-        // SELECT
-        //     p.issue     AS pr,
-        //     p.label     AS state,
-        //     p.timestamp AS timestamp,
-        //     pr_table.merge_sha AS merge_sha,
-        //     c.github_id AS author_id
-        // FROM issues i
-        // JOIN (
-        //     -- Subquery: Pro každé issue a label najdeme poslední akci
-        //     SELECT DISTINCT ON (repository, issue, label)
-        //         repository,
-        //         issue,
-        //         label,
-        //         action,
-        //         timestamp
-        //     FROM issue_labels_history
-        //     WHERE label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
-        //     ORDER BY repository, issue, label, timestamp DESC
-        // ) last_status
-        //   ON i.repository = last_status.repository
-        //   AND i.issue = last_status.issue
-        // WHERE
-        //     -- Zajímá nás jen situace, kdy byl label přidán a zatím nebyl odebrán
-        //     last_status.action = 'ADDED'
-        //     -- A pravděpodobně chceme jen otevřené issues (pokud current_state značí OPEN/CLOSED)
-        //     -- AND i.current_state != 'closed'
-        // ORDER BY
-        //     waiting_duration DESC; -- Nejdéle čekající první
-        // ORDER BY p.timestamp
-        // OFFSET $2
-        // LIMIT $3;
-        // "#,
-        //         )
-        //             .bind(repository)
-        //             .bind(offset)
-        //             .bind(limit)
-        //             .fetch_all(&self.pool)
-        //             .await?;
+        let record = sqlx::query_as::<_, PrEvent>(
+            r#"
+WITH current_waiting_labels AS (
+    SELECT DISTINCT ON (issue, label)
+        issue,
+        label,
+        timestamp,
+        action
+    FROM issue_labels_history
+    WHERE repository = $1
+      AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
+    ORDER BY issue, label, timestamp DESC
+)
+SELECT
+    c.repository AS repository,
+    l.issue     AS pr,
+    l.label     AS state,
+    l.timestamp AS timestamp,
+    c.merge_sha AS merge_sha,
+    c.github_id AS author_id
+FROM current_waiting_labels l
+JOIN issues c ON l.issue = c.issue AND c.repository = $1
+WHERE l.action = 'ADDED'
+  AND c.is_pr = true
+OFFSET $2
+LIMIT $3;
+        "#,
+        )
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
-        let record = vec![]; // Placeholder for the actual query result, which is currently commented out.
+        let record = vec![];
 
         log::debug!(
             "return value from get_prs_waiting_for_review: \n{:?}",
@@ -1003,8 +1060,8 @@ WHERE repository = $1
 "#,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.timestamp)
     }
@@ -1020,9 +1077,9 @@ SELECT name,github_name,github_id FROM contributors
 WHERE github_name ilike $1
 "#,
         )
-            .bind(github_name)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(github_name)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(if record.is_empty() {
             None
@@ -1046,13 +1103,17 @@ WHERE github_name ilike $1
            );
     "#,
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(records)
     }
 
-    pub async fn get_last_update(&self, repository: &str, issue: i64) -> Result<Option<NaiveDateTime>> {
+    pub async fn get_last_update(
+        &self,
+        repository: &str,
+        issue: i64,
+    ) -> Result<Option<NaiveDateTime>> {
         let record = sqlx::query!(
             r#"
 SELECT MAX(timestamp) as timestamp
@@ -1062,8 +1123,8 @@ WHERE repository = $1 AND issue = $2
             repository,
             issue
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.timestamp)
     }

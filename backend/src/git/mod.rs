@@ -21,7 +21,7 @@ pub struct SyncHandler {
     log_messages: Mutex<Vec<String>>,
 }
 
-/// Public functions for Analyze struct
+/// Public functions for SyncHanler struct
 impl SyncHandler {
     pub fn init(
         repository_name: String,
@@ -34,7 +34,7 @@ impl SyncHandler {
             Self::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
-            .unwrap();
+        .unwrap();
         let github = GitHubApi::new(
             Self::repository_identifier(repository_name.clone(), owner.clone()),
             owner,
@@ -42,7 +42,7 @@ impl SyncHandler {
             token,
             database.clone(),
         )
-            .unwrap();
+        .unwrap();
         Self {
             repo,
             github,
@@ -141,7 +141,6 @@ impl SyncHandler {
         }
 
         let timestamp_end = Utc::now();
-
 
         self.log_duration(
             timestamp_end - duration_backfill,
@@ -296,7 +295,7 @@ impl SyncHandler {
                 Ok(())
             },
         )
-            .await?;
+        .await?;
 
         self.log_duration(
             timestamp_start,
@@ -343,4 +342,3 @@ impl SyncHandler {
         Ok(())
     }
 }
-

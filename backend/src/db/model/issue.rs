@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{FromRow, Row};
 use std::str::FromStr;
+use chrono::format::Numeric::Timestamp;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct Issue {
@@ -69,7 +70,17 @@ pub struct IssueLabel {
     pub action: LabelEventAction,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+impl FromRow<'_, sqlx::postgres::PgRow> for IssueLabel {
+    fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(IssueLabel {
+            label: row.try_get("label")?,
+            timestamp: row.try_get("timestamp")?,
+            action: LabelEventAction::from_row(row)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, sqlx::FromRow)]
 pub struct IssueState {
     pub state: String,
     pub timestamp: NaiveDateTime,
@@ -109,7 +120,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for LabelEventAction {
             index: "label_event".to_string(),
             source: Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "Invalid label event action",
+                format!("Invalid label event action {:#?}", row),
             )),
         })
     }
