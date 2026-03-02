@@ -1,5 +1,5 @@
 use crate::db;
-use crate::db::model::issue::{IssueLabel, IssueState};
+use crate::db::model::issue::{IssueLabel, IssueEvent};
 use sqlx::Row;
 
 pub mod issue;
@@ -9,7 +9,7 @@ pub mod responses;
 pub mod team_member;
 
 pub trait IssueLike {
-    fn states_history(&self) -> Option<&Vec<IssueState>>;
+    fn events_history(&self) -> Option<&Vec<IssueEvent>>;
     fn labels_history(&self) -> Option<&Vec<IssueLabel>>;
     fn repository(&self) -> &String;
     fn issue_number(&self) -> i64;
@@ -18,8 +18,8 @@ pub trait IssueLike {
 }
 
 impl<T: IssueLike> IssueLike for &T {
-    fn states_history(&self) -> Option<&Vec<IssueState>> {
-        (**self).states_history()
+    fn events_history(&self) -> Option<&Vec<IssueEvent>> {
+        (**self).events_history()
     }
     fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
         (**self).labels_history()
@@ -40,7 +40,7 @@ impl<T: IssueLike> IssueLike for &T {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct BackfillRecord {
-    pub states_history: Option<Vec<IssueState>>,
+    pub states_history: Option<Vec<IssueEvent>>,
     pub labels_history: Option<Vec<IssueLabel>>,
 
     pub repository: String,
@@ -50,7 +50,7 @@ pub struct BackfillRecord {
 }
 
 impl IssueLike for BackfillRecord {
-    fn states_history(&self) -> Option<&Vec<IssueState>> {
+    fn events_history(&self) -> Option<&Vec<IssueEvent>> {
         self.states_history.as_ref()
     }
     fn labels_history(&self) -> Option<&Vec<IssueLabel>> {
