@@ -1,5 +1,5 @@
 use crate::api::app_state::AppState;
-use crate::api::PrStateParams;
+use crate::api::IssueStateParams;
 use crate::db::model::pr_event::PullRequestStatus;
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
 use axum::{
@@ -27,19 +27,19 @@ pub fn issues_routes(state: AppState) -> ApiRouter {
 #[debug_handler]
 async fn issue_events(
     State(app): State<AppState>,
-    Query(params): Query<PrStateParams>,
+    Query(params): Query<IssueStateParams>,
 ) -> impl IntoApiResponse {
     match app
         .db
-        .get_issue_events_at(params.repository.as_str(), params.pr, params.timestamp)
+        .get_issue_events_at(params.repository.as_str(), params.issue, params.timestamp)
         .await
     {
         Ok(events) => {
             if events.is_empty() {
-                log::warn!("No issue events found for {}#{} at {}", params.repository, params.pr, params.timestamp);
+                log::warn!("No issue events found for {}#{} at {}", params.repository, params.issue, params.timestamp);
                 (
                     StatusCode::NOT_FOUND,
-                    Json(format!("No issue events found for {}#{} at {}", params.repository, params.pr, params.timestamp)),
+                    Json(format!("No issue events found for {}#{} at {}", params.repository, params.issue, params.timestamp)),
                 )
                     .into_response()
             } else {

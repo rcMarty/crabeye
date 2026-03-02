@@ -92,11 +92,11 @@ pub struct PrCountParams {
 
 /// Parameters for getting PR state at a specific timestamp
 #[derive(serde::Deserialize, schemars::JsonSchema)]
-pub struct PrStateParams {
+pub struct IssueStateParams {
     /// Repository identifier to filter reviews, example = "owner/repo"
     pub repository: String,
     /// Pull request number
-    pub pr: i64,
+    pub issue: i64,
     /// Timestamp to get the PR state at, format: YYYY-MM-DD
     pub timestamp: NaiveDate,
 }

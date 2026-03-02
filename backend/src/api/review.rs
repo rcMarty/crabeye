@@ -1,6 +1,6 @@
 use crate::api::app_state::AppState;
 use crate::api::{
-    PrCountParams, PrTopFilesParams, PrStateParams, ReviewParams, WaitingForReviewParams,
+    PrCountParams, PrTopFilesParams, IssueStateParams, ReviewParams, WaitingForReviewParams,
 };
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{PrEvent};
@@ -183,28 +183,32 @@ async fn prs_in_state(
 #[debug_handler]
 async fn pr_history(
     State(app): State<AppState>,
-    Query(params): Query<PrStateParams>,
+    Query(params): Query<IssueStateParams>,
 ) -> impl IntoApiResponse {
     match app
         .db
-        .get_pr_history_from(params.repository.as_str(), params.pr, params.timestamp)
+        .get_pr_history_from(params.repository.as_str(), params.issue, params.timestamp)
         .await
     {
         Ok(Some(counts)) => (StatusCode::OK, Json(counts)).into_response(),
         Ok(None) => {
-            log::warn!("History in that timestamp for PR {} not found", params.pr);
+            log::warn!("History in that timestamp for PR {} not found", params.issue);
             (
                 StatusCode::NOT_FOUND,
                 Json(format!(
                     "History for timestamp {} for PR {} not found",
-                    params.timestamp, params.pr
+                    params.timestamp, params.issue
                 )),
             )
                 .into_response()
         }
         Err(err) => {
-            log::error!("Error getting file counts: {}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err.to_string())).into_response()
+            log::error!("Error getting PR history: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(format!("Error getting PR history {}", err)),
+            )
+                .into_response()
         }
     }
 }
