@@ -15,6 +15,7 @@ use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
+use crate::db::model::issue::IssueState;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -677,16 +678,15 @@ impl Database {
         repository: &str,
         pr: i64,
         timestamp: NaiveDate,
-    ) -> Result<Vec<PullRequestStatus>> {
+    ) -> Result<Vec<IssueState>> {
         let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
         let timestamp_end = timestamp_start + chrono::Duration::days(1);
 
-        let ret = sqlx::query_as::<_, PullRequestStatus>(
+        let ret = sqlx::query_as::<_, IssueState>(
             r#"
-SELECT distinct hist.event as state, hist.timestamp as timestamp, iss.merge_sha as merge_sha
-FROM issue_event_history hist
-join issues as iss using (repository, issue)
-WHERE repository = $1 and issue = $2 and hist.timestamp between $3 and $4
+SELECT distinct event as state, timestamp as timestamp
+FROM issue_event_history
+WHERE repository = $1 and issue = $2 and timestamp between $3 and $4
 ORDER BY timestamp DESC
 "#,
         )
@@ -912,21 +912,24 @@ where github_id in
             pagination.per_page
         );
 
-        let (_limit, _offset) = pagination.limit_offset();
+        let (limit, offset) = pagination.limit_offset();
         let count = sqlx::query!(
             r#"
-select count(*) as count from (
-    select issue
-    from issue_event_history as p
-    join issues c USING (repository, issue)
-    where NOT EXISTS (
-        select id
-        from issue_event_history as p2
-        where p.id = p2.id and p2.timestamp > p.timestamp)
-            and (p.event = 'S-waiting-on-review' or p.event = 'S-waiting-on-bors' or p.event = 'S-waiting-on-author')
-            and c.is_pr = true
-            and p.repository = $1
-) as subquery;
+WITH current_waiting_labels AS (
+    SELECT DISTINCT ON (issue, label)
+        issue,
+        label,
+        action
+    FROM issue_labels_history
+    WHERE repository = $1
+      AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
+    ORDER BY issue, label, timestamp DESC
+)
+SELECT COUNT(DISTINCT l.issue)
+FROM current_waiting_labels l
+JOIN issues c ON l.issue = c.issue AND c.repository = $1
+WHERE l.action = 'ADDED'
+  AND c.is_pr = true;
 "#,
             repository
         )
@@ -935,47 +938,41 @@ select count(*) as count from (
             .count
             .unwrap_or(0) as usize;
 
-        // TODO check this query
-        //         let record = sqlx::query_as::<_, PrEvent>(
-        //             r#"
-        // SELECT
-        //     p.issue     AS pr,
-        //     p.label     AS state,
-        //     p.timestamp AS timestamp,
-        //     pr_table.merge_sha AS merge_sha,
-        //     c.github_id AS author_id
-        // FROM issues i
-        // JOIN (
-        //     -- Subquery: Pro každé issue a label najdeme poslední akci
-        //     SELECT DISTINCT ON (repository, issue, label)
-        //         repository,
-        //         issue,
-        //         label,
-        //         action,
-        //         timestamp
-        //     FROM issue_labels_history
-        //     WHERE label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
-        //     ORDER BY repository, issue, label, timestamp DESC
-        // ) last_status
-        //   ON i.repository = last_status.repository
-        //   AND i.issue = last_status.issue
-        // WHERE
-        //     -- Zajímá nás jen situace, kdy byl label přidán a zatím nebyl odebrán
-        //     last_status.action = 'ADDED'
-        //     -- A pravděpodobně chceme jen otevřené issues (pokud current_state značí OPEN/CLOSED)
-        //     -- AND i.current_state != 'closed'
-        // ORDER BY
-        //     waiting_duration DESC; -- Nejdéle čekající první
-        // ORDER BY p.timestamp
-        // OFFSET $2
-        // LIMIT $3;
-        // "#,
-        //         )
-        //             .bind(repository)
-        //             .bind(offset)
-        //             .bind(limit)
-        //             .fetch_all(&self.pool)
-        //             .await?;
+        //TODO: ještě tohle musíš vymyslet jak to bude fungovat
+        let record = sqlx::query_as::<_, PrEvent>(
+            r#"
+WITH current_waiting_labels AS (
+    SELECT DISTINCT ON (issue, label)
+        issue,
+        label,
+        action,
+        timestamp
+    FROM issue_labels_history
+    WHERE repository = $1
+      AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
+    ORDER BY issue, label, timestamp DESC
+)
+SELECT
+    c.repository as repository,
+    c.issue as pr,
+    l.label as state,
+    l.timestamp AS timestamp,
+    c.merge_sha as merge_sha,
+    c.contributor_id as author_id
+FROM current_waiting_labels l
+JOIN issues c ON l.issue = c.issue AND c.repository = $1
+WHERE l.action = 'ADDED'
+  AND c.is_pr = true
+ORDER BY l.timestamp ASC
+LIMIT $2
+OFFSET $3;
+        "#,
+        )
+            .bind(repository)
+            .bind(offset)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
 
         let record = vec![]; // Placeholder for the actual query result, which is currently commented out.
 

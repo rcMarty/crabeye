@@ -69,7 +69,7 @@ pub struct IssueLabel {
     pub action: LabelEventAction,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, sqlx::FromRow)]
 pub struct IssueState {
     pub state: String,
     pub timestamp: NaiveDateTime,

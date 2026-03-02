@@ -98,11 +98,11 @@ where file_path like $1
 select * from issue_event_history
 where issue = 8412;
 
-SELECT *
+SELECT label
 FROM (
          SELECT DISTINCT ON (issue, label) *
          FROM issue_labels_history
-         WHERE issue = 8412 and repository = 'rust-lang/rust'
+         WHERE issue = 152967 and repository = 'rust-lang/rust'
          ORDER BY issue, label, timestamp DESC
          -- dej mi jen poslední záznamy podle mimo jiné timestamp issueo každou kombinaci issue a label_event
          -- (zaručeno že ta akce bude latest)
