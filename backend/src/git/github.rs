@@ -124,7 +124,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -178,13 +178,13 @@ impl GitHubApi {
                                 pr,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_issues, parsed_users))
             }
         }
@@ -228,10 +228,10 @@ impl GitHubApi {
                     match response.items.last().unwrap() {
                         pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
-                            {
-                                log::info!("No more pull requests to process, stopping at page {page}");
-                                break 'pageLoop;
-                            }
+                        {
+                            log::info!("No more pull requests to process, stopping at page {page}");
+                            break 'pageLoop;
+                        }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!(
@@ -249,7 +249,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -307,16 +307,13 @@ impl GitHubApi {
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
     }
 
-    pub async fn process_backfill(
-        &self,
-        records_from_db: &mut [BackfillRecord],
-    ) {
+    pub async fn process_backfill(&self, records_from_db: &mut [BackfillRecord]) {
         with_progress_bar_async(
             records_from_db.len(),
             Some("Processing backfill records".parse().unwrap()),
@@ -339,18 +336,23 @@ impl GitHubApi {
                 Ok(())
             },
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 }
 
 /// private fetching functions and parsing
 impl GitHubApi {
-    fn should_timeline_requests_continue(response: &[TimelineEvent], last_timestamp: &Option<chrono::NaiveDateTime>) -> bool {
+    fn should_timeline_requests_continue(
+        response: &[TimelineEvent],
+        last_timestamp: &Option<chrono::NaiveDateTime>,
+    ) -> bool {
         match last_timestamp {
-            Some(last_ts) => response
-                .iter()
-                .any(|event| event.created_at.is_some_and(|ts| ts.naive_utc() <= *last_ts)),
+            Some(last_ts) => response.iter().any(|event| {
+                event
+                    .created_at
+                    .is_some_and(|ts| ts.naive_utc() <= *last_ts)
+            }),
             None => false,
         }
     }
@@ -526,9 +528,9 @@ impl GitHubApi {
                                     .expect("Missing created time"),
                                 None,
                             )
-                                .unwrap_or(PullRequestStatus::Open {
-                                    time: pr.created_at.expect("Missing created time"),
-                                })
+                            .unwrap_or(PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
@@ -562,8 +564,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 
     async fn parse_issues(
@@ -631,8 +633,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 }
 
@@ -753,6 +755,16 @@ impl GitHubApi {
         let mut vec = Vec::new();
         for event in timeline {
             match event.event {
+                models::Event::Merged => {
+                    let time = event
+                        .created_at
+                        .context(format!("cannot get time from Timeline event{:?}", event))?
+                        .naive_utc();
+                    vec.push(crate::db::model::issue::IssueState {
+                        state: "merged".to_string(),
+                        timestamp: time,
+                    });
+                }
                 models::Event::Closed => {
                     let time = event
                         .created_at

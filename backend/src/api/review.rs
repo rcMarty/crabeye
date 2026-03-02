@@ -47,11 +47,20 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             }),
         )
         .api_route(
+            "/issue-events",
+            get_with(issue_events, |op| {
+                op.description("Get the state of a Issue at a specific timestamp")
+                    .tag("Issue")
+                    .response::<200, Json<Vec<PullRequestStatus>>>()
+                    .response::<500, (StatusCode, String)>()
+            }),
+        )
+        .api_route(
             "/pr-state",
             get_with(pr_state, |op| {
-                op.description("Get the state of a PR at a specific timestamp")
+                op.description("Get the states and lables of a PR at a specific timestamp")
                     .tag("PR")
-                    .response::<200, Json<Vec<PullRequestStatus>>>()
+                    .response::<200, Json<PrEvent>>()
                     .response::<500, (StatusCode, String)>()
             }),
         )
@@ -180,13 +189,31 @@ async fn prs_in_state(
 }
 
 #[debug_handler]
+async fn issue_events(
+    State(app): State<AppState>,
+    Query(params): Query<PrStateParams>,
+) -> impl IntoApiResponse {
+    match app
+        .db
+        .get_issue_events_at(params.repository.as_str(), params.pr, params.timestamp)
+        .await
+    {
+        Ok(counts) => (StatusCode::OK, Json(counts)).into_response(),
+        Err(err) => {
+            log::error!("Error getting file counts: {}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err.to_string())).into_response()
+        }
+    }
+}
+
+#[debug_handler]
 async fn pr_state(
     State(app): State<AppState>,
     Query(params): Query<PrStateParams>,
 ) -> impl IntoApiResponse {
     match app
         .db
-        .get_issue_state_at(params.repository.as_str(), params.pr, params.timestamp)
+        .get_pr_state_at(params.repository.as_str(), params.pr, params.timestamp)
         .await
     {
         Ok(counts) => (StatusCode::OK, Json(counts)).into_response(),

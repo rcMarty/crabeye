@@ -15,7 +15,7 @@ use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
-use crate::db::model::issue::IssueState;
+use crate::db::model::issue::{IssueLabel, IssueState, IssueStatus};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -478,7 +478,6 @@ WHERE issues.timestamp < EXCLUDED.timestamp
         events: &[T],
         tx: &mut sqlx::Transaction<'c, Postgres>,
     ) -> Result<()> {
-
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_labels_history
         if events.iter().all(|e| e.labels_history().is_some()) {
@@ -673,7 +672,7 @@ impl Database {
     /// - `Ok(Vec<String>)` with states found for that day (may be empty).
     /// - `Err(...)` on SQL/DB errors.
     //TEMP: Jaký byl stav konkrétního PR v daný timestamp?
-    pub async fn get_issue_state_at(
+    pub async fn get_issue_events_at(
         &self,
         repository: &str,
         pr: i64,
@@ -684,9 +683,9 @@ impl Database {
 
         let ret = sqlx::query_as::<_, IssueState>(
             r#"
-SELECT distinct event as state, timestamp as timestamp
-FROM issue_event_history
-WHERE repository = $1 and issue = $2 and timestamp between $3 and $4
+SELECT distinct hist.event as state, hist.timestamp as timestamp
+FROM issue_event_history hist
+WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp between $3 and $4
 ORDER BY timestamp DESC
 "#,
         )
@@ -699,6 +698,72 @@ ORDER BY timestamp DESC
 
         log::debug!("return value from get pr state at: \n{:?}", ret);
         Ok(ret)
+    }
+
+    pub async fn get_pr_state_at(
+        &self,
+        repository: &str,
+        pr: i64,
+        timestamp: NaiveDate,
+    ) -> Result<PrEvent> {
+        let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
+        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+
+        let labels = sqlx::query_as::<_, IssueLabel>(
+            r#"
+SELECT
+    subquery.label as label,
+    subquery.timestamp as timestamp,
+    subquery.action as label_event
+FROM (
+         SELECT DISTINCT ON (issue, label) *
+         FROM issue_labels_history
+         WHERE issue = $2 and repository = $1 and timestamp between $3 and $4 and is_pr = true and label like 'S-%'
+         ORDER BY issue, label, timestamp DESC
+     ) subquery
+WHERE action = 'ADDED';
+"#,
+        )
+            .bind(repository)
+            .bind(pr)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let states = sqlx::query_as::<_, IssueState>(
+            r#"
+SELECT distinct hist.event as state, hist.timestamp as timestamp
+FROM issue_event_history hist
+WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp between $3 and
+    $4
+ORDER BY timestamp DESC
+"#,
+        )
+        .bind(repository)
+        .bind(pr)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut pr = sqlx::query_as::<_, PrEvent>(
+            r#"
+SELECT repository as repository, issue as pr, current_state as state, timestamp as timestamp, merge_sha as merge_sha, contributor_id as author_id
+FROM issues
+WHERE repository = $1 and issue = $2 and is_pr = true
+"#,
+        )
+        .bind(repository)
+        .bind(pr)
+        .fetch_one(&self.pool)
+        .await?;
+
+        pr.labels_history = Some(labels);
+        pr.states_history = Some(states);
+
+        log::debug!("return value from get pr state at: \n{:?}", pr.clone());
+        Ok(pr)
     }
 
     /// Count PR state occurrences for a given day.
@@ -938,41 +1003,39 @@ WHERE l.action = 'ADDED'
             .count
             .unwrap_or(0) as usize;
 
-        //TODO: ještě tohle musíš vymyslet jak to bude fungovat
         let record = sqlx::query_as::<_, PrEvent>(
             r#"
 WITH current_waiting_labels AS (
     SELECT DISTINCT ON (issue, label)
         issue,
         label,
-        action,
-        timestamp
+        timestamp,
+        action
     FROM issue_labels_history
     WHERE repository = $1
       AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
     ORDER BY issue, label, timestamp DESC
 )
 SELECT
-    c.repository as repository,
-    c.issue as pr,
-    l.label as state,
+    c.repository AS repository,
+    l.issue     AS pr,
+    l.label     AS state,
     l.timestamp AS timestamp,
-    c.merge_sha as merge_sha,
-    c.contributor_id as author_id
+    c.merge_sha AS merge_sha,
+    c.github_id AS author_id
 FROM current_waiting_labels l
 JOIN issues c ON l.issue = c.issue AND c.repository = $1
 WHERE l.action = 'ADDED'
   AND c.is_pr = true
-ORDER BY l.timestamp ASC
-LIMIT $2
-OFFSET $3;
+OFFSET $2
+LIMIT $3;
         "#,
         )
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         let record = vec![]; // Placeholder for the actual query result, which is currently commented out.
 
@@ -1049,7 +1112,11 @@ WHERE github_name ilike $1
         Ok(records)
     }
 
-    pub async fn get_last_update(&self, repository: &str, issue: i64) -> Result<Option<NaiveDateTime>> {
+    pub async fn get_last_update(
+        &self,
+        repository: &str,
+        issue: i64,
+    ) -> Result<Option<NaiveDateTime>> {
         let record = sqlx::query!(
             r#"
 SELECT MAX(timestamp) as timestamp
