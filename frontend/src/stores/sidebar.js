@@ -22,6 +22,11 @@ export const useSidebarStore = defineStore('sidebar', () => {
       icon: 'pe-7s-graph1',
       children: [
         {
+          id: 'pr-analytics',
+          title: 'PR Analytics',
+          route: '/pr-analytics'
+        },
+        {
           id: 'files-changed',
           title: 'Files Changed',
           route: '/reviewers'

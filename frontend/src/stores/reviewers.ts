@@ -2,6 +2,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+
 export interface Reviewer {
   github_name: string
   github_id: number
@@ -21,18 +23,24 @@ export const useReviewersStore = defineStore('reviewers', () => {
   const perPage = ref<number>(10)
   const isLoading = ref<boolean>(false)
   const error = ref<string | null>(null)
+  const lastRepository = ref<string>('rust-lang/rust')
+  const lastFile = ref<string | undefined>(undefined)
+  const lastFromDate = ref<string | null>(null)
+  const lastNDays = ref<number | null>(null)
 
   async function fetchReviewers(
     params: {
+      repository: string
       file?: string
       from_date?: string | null
       last_n_days?: number | null
       page?: number
       per_page?: number
-    } = {}
+    }
   ) {
     // merge URL query params into the provided params but don't override explicit args
     const effectiveParams: {
+      repository: string
       file?: string
       from_date?: string | null
       last_n_days?: number | null
@@ -42,6 +50,10 @@ export const useReviewersStore = defineStore('reviewers', () => {
 
     if (typeof window !== 'undefined' && window.location && window.location.search) {
       const urlParams = new URLSearchParams(window.location.search)
+
+      if (urlParams.has('repository') && !params.repository) {
+        effectiveParams.repository = urlParams.get('repository') || effectiveParams.repository
+      }
 
       if (urlParams.has('file') && effectiveParams.file === undefined) {
         effectiveParams.file = urlParams.get('file') || undefined
@@ -70,21 +82,23 @@ export const useReviewersStore = defineStore('reviewers', () => {
 
     page.value = effectiveParams.page ?? 1
     perPage.value = effectiveParams.per_page ?? 10
+    lastRepository.value = effectiveParams.repository
+    lastFile.value = effectiveParams.file
+    lastFromDate.value = effectiveParams.from_date ?? null
+    lastNDays.value = effectiveParams.last_n_days ?? null
     isLoading.value = true
     error.value = null
 
     const qs = new URLSearchParams()
+    qs.set('repository', effectiveParams.repository)
     if (effectiveParams.file) qs.set('file', effectiveParams.file)
     if (effectiveParams.from_date) qs.set('from_date', effectiveParams.from_date)
     if (effectiveParams.last_n_days != null) qs.set('last_n_days', String(effectiveParams.last_n_days))
-    qs.set('page', String(page.value))
-    qs.set('per_page', String(perPage.value))
+    qs.set('pagination[page]', String(page.value))
+    qs.set('pagination[per_page]', String(perPage.value))
 
     try {
-      // Use Vite env var (import.meta.env) with fallback to relative path
-      const base = (import.meta.env.VITE_BACKEND_BASE_URL as string) ?? ''
-      const baseNoSlash = base.replace(/\/$/, '')
-      const url = baseNoSlash ? `${baseNoSlash}/api/reviewers?${qs.toString()}` : `/api/reviewers?${qs.toString()}`
+      const url = `${API_BASE_URL}/api/pr/reviewers?${qs.toString()}`
 
       console.log(`Fetching reviewers from: ${url}`)
 
@@ -106,7 +120,14 @@ export const useReviewersStore = defineStore('reviewers', () => {
   }
 
   function setPage(p: number) {
-    return fetchReviewers({ page: p, per_page: perPage.value })
+    return fetchReviewers({
+      repository: lastRepository.value,
+      file: lastFile.value,
+      from_date: lastFromDate.value,
+      last_n_days: lastNDays.value,
+      page: p,
+      per_page: perPage.value
+    })
   }
 
   return {

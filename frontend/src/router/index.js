@@ -171,6 +171,11 @@ export default createRouter({
       path: '/reviewers',
       name: 'Reviewers',
       component: () => import('../pages/ReviewersList.vue')
+    },
+    {
+      path: '/pr-analytics',
+      name: 'PrAnalytics',
+      component: () => import('../pages/PrAnalytics.vue')
     }
   ]
 })
