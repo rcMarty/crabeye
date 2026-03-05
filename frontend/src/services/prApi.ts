@@ -102,6 +102,12 @@ export interface WaitingForReviewParams {
   pagination?: Pagination | null
 }
 
+export interface IssueEventsParams {
+  repository: string
+  issue: number
+  timestamp: string
+}
+
 // Files Modified by Team Types
 export type GroupingLevel = null | number | 'all' | 'none'
 
@@ -276,4 +282,21 @@ export function getStatusTime(status: PullRequestStatus): string {
   if ('Closed' in status) return status.Closed.time
   if ('Merged' in status) return status.Merged.time
   return ''
+}
+
+/**
+ * Get the state history of an issue at a specific timestamp
+ * GET /api/issue/issue-events
+ */
+export async function getIssueEvents(params: IssueEventsParams): Promise<PullRequestStatus[]> {
+  const searchParams = new URLSearchParams()
+  searchParams.set('repository', params.repository)
+  searchParams.set('issue', params.issue.toString())
+  searchParams.set('timestamp', params.timestamp)
+
+  const response = await fetch(`${API_BASE_URL}/issue/issue-events?${searchParams.toString()}`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch issue events: ${response.statusText}`)
+  }
+  return response.json()
 }

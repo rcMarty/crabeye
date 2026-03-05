@@ -18,8 +18,8 @@ pub fn issues_routes(state: AppState) -> ApiRouter {
                 op.description("Get the state of an Issue at a specific timestamp")
                     .tag("Issue")
                     .response::<200, Json<Vec<PullRequestStatus>>>()
-                    .response::<404, (StatusCode, String)>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<404, Json<String>>()
+                    .response::<500, Json<String>>()
             }),
         )
         .with_state(state)
