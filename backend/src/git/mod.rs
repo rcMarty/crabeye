@@ -34,7 +34,7 @@ impl SyncHandler {
             Self::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
-            .unwrap();
+        .unwrap();
         let github = GitHubApi::new(
             Self::repository_identifier(repository_name.clone(), owner.clone()),
             owner,
@@ -42,7 +42,7 @@ impl SyncHandler {
             token,
             database.clone(),
         )
-            .unwrap();
+        .unwrap();
         Self {
             repo,
             github,
@@ -296,7 +296,7 @@ impl SyncHandler {
                 Ok(())
             },
         )
-            .await?;
+        .await?;
 
         self.log_duration(
             timestamp_start,

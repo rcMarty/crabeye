@@ -30,6 +30,8 @@ anyhow = "1.0.100"   # error handling
 chrono = "0.4.42"   # date and time
 dotenvy = "0.15.7"
 
+indexmap = { version = "2.13.0", features = ["serde"] }
+
 # logging
 log = { version = "0.4.29", features = ["kv", "kv_serde", "kv_std", ] }
 env_logger = "0.11.8"

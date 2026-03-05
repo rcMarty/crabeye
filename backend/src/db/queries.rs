@@ -2,65 +2,49 @@ use super::*;
 
 /// Read-only analytical queries for PRs, issues and file activity.
 impl Database {
-    // Změna: Místo slice IDček bereme rovnou jméno týmu jako string
+    /// Returns a list of files modified by contributors of a given team within a specified time window.
+    ///
+    /// The time window is defined by `from_timestamp` (defaults to today) and `last_n_days` (defaults to 7), and is aligned to full days (00:00 to 00:00). The query looks up contributors in the specified team and counts their modifications to files in the given repository within the time window. Results are ordered by modification count descending.
+    /// # Errors
+    /// Returns an error on SQL/DB failure.
     pub async fn get_files_modified_by_team(
         &self,
         repository: &str,
         team_name: &str,
         from_timestamp: Option<NaiveDate>,
         last_n_days: Option<i64>,
-        pagination: Pagination,
-    ) -> Result<PaginatedResponse<String>> {
-        let timestamp_end = from_timestamp.unwrap_or_else(|| Utc::now().date_naive()).and_hms_opt(0, 0, 0).unwrap();
+    ) -> Result<HashMap<String, i64>> {
+        let timestamp_end = from_timestamp
+            .unwrap_or_else(|| Utc::now().date_naive())
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         log::debug!("timestamp_ start {} end {}", timestamp_start, timestamp_end);
 
-        let (limit, offset) = pagination.limit_offset();
-
-        let count = sqlx::query!(
-        r#"
-SELECT COUNT(DISTINCT fa.file_path) as count
-FROM file_activity fa
--- TADY JE TA MAGIE: Propojíme to s tabulkou týmů
-JOIN contributors_teams ct ON fa.contributor_id = ct.contributor_id
-WHERE fa.repository = $1
-  AND fa.timestamp BETWEEN $2 AND $3
-  AND ct.team = $4
-        "#,
-        repository,
-        timestamp_start,
-        timestamp_end,
-        team_name
-    )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
-
-        let entries = sqlx::query_scalar::<_, String>(
+        let entries = sqlx::query_as::<_, (String, i64)>(
             r#"
-SELECT DISTINCT fa.file_path
+SELECT fa.file_path, count(*) as editions
 FROM file_activity fa
-JOIN contributors_teams ct ON fa.contributor_id = ct.contributor_id
 WHERE fa.repository = $1
-  AND fa.timestamp BETWEEN $2 AND $3
-  AND ct.team = $4
-ORDER BY fa.file_path
-OFFSET $5 LIMIT $6
+    AND fa.timestamp BETWEEN $2 AND $3
+    AND fa.contributor_id IN (
+        SELECT c.contributor_id
+        FROM contributors_teams c
+        WHERE c.team = $4
+    )
+GROUP BY fa.file_path
+ORDER BY editions DESC
         "#,
         )
-            .bind(repository)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(team_name)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(team_name)
+        .fetch_all(&self.pool)
+        .await?;
 
-        Ok(PaginatedResponse::new(count, pagination, entries))
+        Ok(entries.into_iter().collect())
     }
-
 
     /// Returns all distinct issue events recorded on the day that contains `timestamp`.
     ///
@@ -164,11 +148,11 @@ WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp <= $3 and hist
 ORDER BY timestamp DESC
 "#,
         )
-            .bind(repository)
-            .bind(pr)
-            .bind(timestamp_start)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(pr)
+        .bind(timestamp_start)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut pr = match sqlx::query_as::<_, PrEvent>(
             r#"
@@ -225,8 +209,8 @@ WHERE timestamp BETWEEN $1 AND $2
             state.to_string(),
             repository
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.count.unwrap())
     }
@@ -266,13 +250,13 @@ order by timestamp DESC
 LIMIT $5;
 "#,
         )
-            .bind(&ids)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(n)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(&ids)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(n)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(record)
     }
 
@@ -323,10 +307,10 @@ where github_id in
             timestamp_end,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
 
         let entries = sqlx::query_as::<_, Contributor>(
             r#"
@@ -344,14 +328,14 @@ where github_id in
         );
 "#,
         )
-            .bind(file_path)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(file_path)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(PaginatedResponse::new(count, pagination, entries))
     }
@@ -398,10 +382,10 @@ WHERE l.action = 'ADDED'
 "#,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
 
         let record = sqlx::query_as::<_, PrEvent>(
             r#"
@@ -431,11 +415,11 @@ OFFSET $2
 LIMIT $3;
         "#,
         )
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         log::debug!(
             "return value from get_prs_waiting_for_review: \n{:?}",

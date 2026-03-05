@@ -11,16 +11,17 @@ use axum::{
 };
 
 pub fn issues_routes(state: AppState) -> ApiRouter {
-    ApiRouter::new().api_route(
-        "/issue-events",
-        get_with(issue_events, |op| {
-            op.description("Get the state of an Issue at a specific timestamp")
-                .tag("Issue")
-                .response::<200, Json<Vec<PullRequestStatus>>>()
-                .response::<404, (StatusCode, String)>()
-                .response::<500, (StatusCode, String)>()
-        }),
-    )
+    ApiRouter::new()
+        .api_route(
+            "/issue-events",
+            get_with(issue_events, |op| {
+                op.description("Get the state of an Issue at a specific timestamp")
+                    .tag("Issue")
+                    .response::<200, Json<Vec<PullRequestStatus>>>()
+                    .response::<404, (StatusCode, String)>()
+                    .response::<500, (StatusCode, String)>()
+            }),
+        )
         .with_state(state)
 }
 
@@ -36,10 +37,18 @@ async fn issue_events(
     {
         Ok(events) => {
             if events.is_empty() {
-                log::warn!("No issue events found for {}#{} at {}", params.repository, params.issue, params.timestamp);
+                log::warn!(
+                    "No issue events found for {}#{} at {}",
+                    params.repository,
+                    params.issue,
+                    params.timestamp
+                );
                 (
                     StatusCode::NOT_FOUND,
-                    Json(format!("No issue events found for {}#{} at {}", params.repository, params.issue, params.timestamp)),
+                    Json(format!(
+                        "No issue events found for {}#{} at {}",
+                        params.repository, params.issue, params.timestamp
+                    )),
                 )
                     .into_response()
             } else {
@@ -52,4 +61,3 @@ async fn issue_events(
         }
     }
 }
-

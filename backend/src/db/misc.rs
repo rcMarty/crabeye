@@ -2,6 +2,18 @@ use super::*;
 
 /// Miscellaneous helper queries used by background jobs and the backfill pipeline.
 impl Database {
+    pub async fn get_all_teams(&self) -> Result<Vec<String>> {
+        let records = sqlx::query!(
+            r#"
+SELECT team FROM teams
+"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(records.into_iter().map(|r| r.team).collect())
+    }
+
     /// Returns the timestamp of the most recent event stored in `issue_event_history`
     /// for the given repository, or `None` if no events have been recorded yet.
     ///
@@ -19,8 +31,8 @@ WHERE repository = $1
 "#,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.timestamp)
     }
@@ -43,9 +55,9 @@ SELECT name,github_name,github_id FROM contributors
 WHERE github_name ilike $1
 "#,
         )
-            .bind(github_name)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(github_name)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(if record.is_empty() {
             None
@@ -76,8 +88,8 @@ WHERE github_name ilike $1
            );
     "#,
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(records)
     }
@@ -101,8 +113,8 @@ WHERE repository = $1 AND issue = $2
             repository,
             issue
         )
-            .fetch_one(&self.pool)
-            .await?;
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(record.timestamp)
     }

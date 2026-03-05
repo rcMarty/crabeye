@@ -1,4 +1,4 @@
-use crate::db::model::issue::{Issue, IssueLabel, IssueEvent};
+use crate::db::model::issue::{Issue, IssueEvent, IssueLabel};
 use crate::db::model::team_member::TeamMember;
 use crate::db::model::IssueLike;
 use chrono::{DateTime, NaiveDateTime, Utc};

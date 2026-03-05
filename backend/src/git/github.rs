@@ -124,7 +124,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -178,13 +178,13 @@ impl GitHubApi {
                                 pr,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_issues, parsed_users))
             }
         }
@@ -228,10 +228,10 @@ impl GitHubApi {
                     match response.items.last().unwrap() {
                         pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
-                            {
-                                log::info!("No more pull requests to process, stopping at page {page}");
-                                break 'pageLoop;
-                            }
+                        {
+                            log::info!("No more pull requests to process, stopping at page {page}");
+                            break 'pageLoop;
+                        }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!(
@@ -249,7 +249,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -307,7 +307,7 @@ impl GitHubApi {
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
@@ -336,8 +336,8 @@ impl GitHubApi {
                 Ok(())
             },
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 }
 
@@ -528,9 +528,9 @@ impl GitHubApi {
                                     .expect("Missing created time"),
                                 None,
                             )
-                                .unwrap_or(PullRequestStatus::Open {
-                                    time: pr.created_at.expect("Missing created time"),
-                                })
+                            .unwrap_or(PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
@@ -564,8 +564,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 
     async fn parse_issues(
@@ -633,8 +633,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 }
 

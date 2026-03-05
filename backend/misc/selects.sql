@@ -136,3 +136,15 @@ SELECT issue, COUNT(*) as cnt
 FROM issues
 GROUP BY issue
 HAVING count(*) > 1;
+
+
+SELECT count(*) as editions
+FROM file_activity fa
+WHERE fa.repository = 'rust-lang/rust'
+  AND fa.timestamp BETWEEN '2024-04-06' AND '2027-01-01'
+  AND fa.contributor_id IN (
+    SELECT c.contributor_id
+    FROM contributors_teams c
+    WHERE c.team = 'alumni'
+)
+ORDER BY editions DESC

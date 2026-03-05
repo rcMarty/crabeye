@@ -1,5 +1,5 @@
 use crate::db;
-use crate::db::model::issue::{IssueLabel, IssueEvent};
+use crate::db::model::issue::{IssueEvent, IssueLabel};
 use sqlx::Row;
 
 pub mod issue;

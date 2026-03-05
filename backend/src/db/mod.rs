@@ -3,11 +3,9 @@ pub mod model;
 
 // src/db/mod.rs
 use crate::api::Pagination;
-use crate::db::model::issue::{IssueLabel, IssueEvent};
+use crate::db::model::issue::{IssueEvent, IssueLabel};
 use crate::db::model::paginated_response::PaginatedResponse;
-use crate::db::model::pr_event::{
-    FileActivity, PrEvent, PullRequestStatusRequest,
-};
+use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatusRequest};
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::{Contributor, Team};
 use crate::db::model::{BackfillRecord, IssueLike};
@@ -18,8 +16,8 @@ use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
 
 pub mod inserts;
-pub mod queries;
 pub mod misc;
+pub mod queries;
 
 #[derive(Debug, Clone)]
 pub struct Database {

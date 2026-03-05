@@ -1,11 +1,14 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
 use chrono::NaiveDate;
+use serde::Deserialize;
+use std::collections::HashMap;
+use indexmap::IndexMap;
 
 pub mod app_state;
 pub mod docs;
+pub mod issues;
 pub mod review;
 pub mod webhooks;
-pub mod issues;
 
 /// Optional pagination parameters
 /// Used in multiple endpoints
@@ -99,4 +102,111 @@ pub struct IssueStateParams {
     pub issue: i64,
     /// Timestamp to get the PR state at, format: YYYY-MM-DD
     pub timestamp: NaiveDate,
+}
+
+/// Parameters for getting files modified by a team
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct FilesModifiedByTeamParams {
+    /// Repository identifier to filter, example = "owner/repo"
+    pub repository: String,
+    /// Team name to filter contributors
+    pub team_name: String,
+    /// Optional start date (ISO 8601). default Now, example = "2025-01-01"
+    pub from_timestamp: Option<NaiveDate>,
+    /// Number of days to look back, default 7, example = 30
+    pub last_n_days: Option<i64>,
+    /// Group results by folder level
+    ///
+    /// - "none": Return a flat list of files with modification counts (default)
+    /// - Number (e.g., 1, 2): Group by folder hierarchy up to that depth level
+    /// - "all": Group by the full folder hierarchy
+    ///
+    /// Examples:
+    /// - 1: Groups into top-level folders (src/, library/, etc.)
+    /// - 2: Groups into subfolders (src/doc/, library/core/, etc.)
+    #[serde(default, deserialize_with = "deserialize_grouping_level")]
+    pub group_level: GroupingLevel,
+}
+
+#[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone, Default)]
+#[serde(untagged)]
+pub enum GroupingLevel {
+    #[default]
+    #[serde(rename = "none")]
+    NoGrouping,
+    GroupBy(i64),
+    #[serde(rename = "all")]
+    GroupByAll,
+}
+
+fn deserialize_grouping_level<'de, D>(deserializer: D) -> Result<GroupingLevel, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // helper enum
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum RawValue {
+        Str(String),
+        Int(i64),
+    }
+
+    let raw = RawValue::deserialize(deserializer)?;
+    match raw {
+        RawValue::Str(s) => match s.as_str() {
+            "none" | "" => Ok(GroupingLevel::NoGrouping),
+            "all" => Ok(GroupingLevel::GroupByAll),
+            _ => s.parse::<i64>().map(GroupingLevel::GroupBy).map_err(|_| {
+                serde::de::Error::custom("group_level musí být 'none', 'all', nebo číslo")
+            }),
+        },
+        RawValue::Int(n) => Ok(GroupingLevel::GroupBy(n)),
+    }
+}
+
+#[derive(serde::Serialize, Debug, Clone, schemars::JsonSchema)]
+pub struct FileNode {
+    pub name: String,
+    pub modifications: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<FileNode>,
+}
+
+pub struct BuilderFileNode {
+    name: String,
+    modifications: i64,
+    children: HashMap<String, BuilderFileNode>,
+}
+
+impl BuilderFileNode {
+    fn new(name: String) -> Self {
+        BuilderFileNode {
+            name,
+            modifications: 0,
+            children: HashMap::new(),
+        }
+    }
+    fn into_response(self) -> FileNode {
+        let mut children: Vec<FileNode> = self
+            .children
+            .into_values()
+            .map(|child| child.into_response())
+            .collect();
+
+        // sort children by modifications in descending order
+        children.sort_by(|a, b| b.modifications.cmp(&a.modifications));
+
+        FileNode {
+            name: self.name,
+            modifications: self.modifications,
+            children,
+        }
+    }
+}
+
+#[derive(serde::Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum FilesModifiedResponse {
+    List(IndexMap<String, i64>),
+    Tree(FileNode),
 }

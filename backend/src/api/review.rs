@@ -1,9 +1,10 @@
 use crate::api::app_state::AppState;
 use crate::api::{
-    PrCountParams, PrTopFilesParams, IssueStateParams, ReviewParams, WaitingForReviewParams,
+    BuilderFileNode, FilesModifiedByTeamParams, FilesModifiedResponse, GroupingLevel,
+    IssueStateParams, PrCountParams, PrTopFilesParams, ReviewParams, WaitingForReviewParams,
 };
 use crate::db::model::paginated_response::PaginatedResponse;
-use crate::db::model::pr_event::{PrEvent};
+use crate::db::model::pr_event::PrEvent;
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::Contributor;
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
@@ -14,6 +15,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use indexmap::IndexMap;
 
 pub fn pr_routes(state: AppState) -> ApiRouter {
     ApiRouter::new()
@@ -25,7 +27,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 )
                     .tag("PR")
                     .response::<200, Json<PaginatedResponse<Contributor>>>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<500, Json<String>>()
             }),
         )
         .api_route(
@@ -34,7 +36,8 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description("Get top N files modified by a user within a duration")
                     .tag("PR")
                     .response::<200, Json<Vec<TopFilesResponse>>>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<404, Json<String>>()
+                    .response::<500, Json<String>>()
             }),
         )
         .api_route(
@@ -43,7 +46,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description("Get count of PRs in a specific state at a given timestamp")
                     .tag("PR")
                     .response::<200, Json<i64>>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<500, Json<String>>()
             }),
         )
         .api_route(
@@ -52,8 +55,8 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description("Get the states and lables of a PR at a specific timestamp")
                     .tag("PR")
                     .response::<200, Json<PrEvent>>()
-                    .response::<404, (StatusCode, String)>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<404, Json<String>>()
+                    .response::<500, Json<String>>()
             }),
         )
         .api_route(
@@ -62,7 +65,17 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
                 op.description("Get PRs that are currently waiting for review")
                     .tag("PR")
                     .response::<200, Json<PaginatedResponse<PrEvent>>>()
-                    .response::<500, (StatusCode, String)>()
+                    .response::<500, Json<String>>()
+            }),
+        )
+        .api_route(
+            "/files-modified-by-team",
+            get_with(files_modified_by_team, |op| {
+                op.description("Get files modified by a team within a time window, ordered by modification count descending. The group_level parameter controls grouping: 'none' returns a flat list, a number groups by that folder depth level, 'all' groups by the full folder hierarchy.")
+                    .tag("PR")
+                    .response::<200, Json<FilesModifiedResponse>>()
+                    .response::<404, Json<String>>()
+                    .response::<500, Json<String>>()
             }),
         )
         .with_state(state)
@@ -192,7 +205,10 @@ async fn pr_history(
     {
         Ok(Some(counts)) => (StatusCode::OK, Json(counts)).into_response(),
         Ok(None) => {
-            log::warn!("History in that timestamp for PR {} not found", params.issue);
+            log::warn!(
+                "History in that timestamp for PR {} not found",
+                params.issue
+            );
             (
                 StatusCode::NOT_FOUND,
                 Json(format!(
@@ -230,6 +246,108 @@ async fn waiting_for_review(
         Err(err) => {
             log::error!("Error getting most modified files: {}", err);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err.to_string())).into_response()
+        }
+    }
+}
+
+/// Retrieves files modified by a specific team within a time window.
+///
+/// This endpoint first validates that the requested team exists in the database.
+/// It then fetches all files modified by team members during the specified time period,
+/// ordered by modification count descending.
+///
+/// The response format depends on the `group_level` parameter:
+/// - `NoGrouping` (default): Returns a flat list of (file_path, modification_count) pairs
+/// - `GroupBy(depth)`: Returns a hierarchical tree structure grouped by folder levels up to the specified depth
+/// - `GroupByAll`: Returns a hierarchical tree structure with the full folder hierarchy
+///
+/// # Errors
+/// - 404: Team not found in database
+/// - 500: Database error or internal server error
+#[debug_handler]
+async fn files_modified_by_team(
+    State(app): State<AppState>,
+    Query(params): Query<FilesModifiedByTeamParams>,
+) -> impl IntoApiResponse {
+    let teams = match app.db.get_all_teams().await {
+        Ok(teams) => teams,
+        Err(err) => {
+            log::error!("Error getting teams from database: {}", err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(format!("Error getting teams from database: {}", err)),
+            )
+                .into_response();
+        }
+    };
+    if !teams.contains(&params.team_name) {
+        log::debug!(
+            "Team '{}' not found in database teams: {:?}",
+            params.team_name,
+            teams
+        );
+        return (
+            StatusCode::NOT_FOUND,
+            Json(format!(
+                "Team '{}' not found\nDatabase teams: {:?}",
+                params.team_name, teams
+            )),
+        )
+            .into_response();
+    }
+
+    match app
+        .db
+        .get_files_modified_by_team(
+            params.repository.as_str(),
+            params.team_name.as_str(),
+            params.from_timestamp,
+            params.last_n_days,
+        )
+        .await
+    {
+        Ok(files) => {
+            let max_level = match params.group_level {
+                GroupingLevel::NoGrouping => {
+                    let mut sorted_files: IndexMap<String, i64> = files.into_iter().collect();
+                    sorted_files.sort_by(|file1, count1, file2, count2| {
+                        count2.cmp(count1).then_with(|| file1.cmp(file2))
+                    });
+                    return (StatusCode::OK, Json(sorted_files)).into_response();
+                }
+                GroupingLevel::GroupBy(depth_level) => depth_level as usize,
+                GroupingLevel::GroupByAll => usize::MAX,
+            };
+
+            let mut root = BuilderFileNode::new("/".to_string());
+
+            for (file_path, count) in files {
+                root.modifications += count;
+                let mut current_node = &mut root;
+
+                for part in file_path
+                    .split('/')
+                    .filter(|p| !p.is_empty())
+                    .take(max_level)
+                {
+                    current_node = current_node
+                        .children
+                        .entry(part.to_string())
+                        .or_insert_with(|| BuilderFileNode::new(part.to_string()));
+
+                    current_node.modifications += count;
+                }
+            }
+
+            (StatusCode::OK, Json(root.into_response())).into_response()
+        }
+        Err(err) => {
+            log::error!("Error getting files modified by team: {}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(format!("Error getting files modified by team: {}", err)),
+            )
+                .into_response()
         }
     }
 }
