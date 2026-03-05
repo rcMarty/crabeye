@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { BCard, BButton, BFormInput, BSpinner, BAlert } from 'bootstrap-vue-next'
 import LineChartComponent from '@/components/Charts/LineChartComponent.vue'
 import { getPrHistory, PrEvent, getStatusType } from '@/services/prApi'
+import { formatDateTimeEU, toIsoDate } from '@/utils/dateFormat'
 
 const repository = ref<string>('rust-lang/rust')
 const prNumber = ref<number | null>(null)
@@ -19,7 +20,7 @@ const chartData = computed(() => {
     }
   }
 
-  const labels = prEventData.value.events_history.map(entry => entry.timestamp)
+  const labels = prEventData.value.events_history.map(entry => formatDateTimeEU(entry.timestamp))
   const stateMap: Record<string, number> = {
     'open': 0,
     'closed': 1,
@@ -81,6 +82,12 @@ async function fetchPrState() {
     return
   }
 
+  const timestampIsoDate = toIsoDate(timestamp.value)
+  if (!timestampIsoDate) {
+    error.value = 'Invalid timestamp format. Use dd/mm/yyyy'
+    return
+  }
+
   loading.value = true
   error.value = null
 
@@ -88,7 +95,7 @@ async function fetchPrState() {
     prEventData.value = await getPrHistory({
       repository: repository.value,
       issue: prNumber.value,
-      timestamp: timestamp.value
+      timestamp: timestampIsoDate
     })
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch PR history'
@@ -140,11 +147,10 @@ timestamp.value = today
           />
         </div>
         <div class="col-md-4">
-          <label class="form-label">Timestamp (YYYY-MM-DD)</label>
+          <label class="form-label">Timestamp</label>
           <b-form-input
             v-model="timestamp"
             type="date"
-            placeholder="YYYY-MM-DD"
           />
         </div>
       </div>
@@ -166,7 +172,7 @@ timestamp.value = today
           <h6 class="mt-3">Event History:</h6>
           <ul class="state-list">
             <li v-for="(entry, idx) in prEventData.events_history" :key="idx">
-              <strong>{{ new Date(entry.timestamp).toLocaleString() }}</strong>:
+              <strong>{{ formatDateTimeEU(entry.timestamp) }}</strong>:
               <span :class="`badge bg-${getStateBadgeColor(entry.event)}`">
                 {{ entry.event }}
               </span>
@@ -177,7 +183,7 @@ timestamp.value = today
             <h6>Label History:</h6>
             <ul class="state-list">
               <li v-for="(label, idx) in prEventData.labels_history" :key="idx">
-                <strong>{{ new Date(label.timestamp).toLocaleString() }}</strong>:
+                <strong>{{ formatDateTimeEU(label.timestamp) }}</strong>:
                 <span :class="`badge bg-${label.action === 'ADDED' ? 'success' : 'danger'}`">
                   {{ label.action }} - {{ label.label }}
                 </span>

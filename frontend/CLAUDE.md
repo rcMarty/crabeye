@@ -240,3 +240,6 @@ This project was successfully migrated from Vue 2.6 to Vue 3.5.17 with:
 - ✅ All dependencies updated to latest secure versions
 - ✅ Zero vulnerabilities achieved
 - ✅ Modern development tooling implemented
+
+# MCP Server
+Always use Context7 MCP when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.

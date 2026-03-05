@@ -98,7 +98,7 @@ export const useReviewersStore = defineStore('reviewers', () => {
     qs.set('pagination[per_page]', String(perPage.value))
 
     try {
-      const url = `${API_BASE_URL}/api/pr/reviewers?${qs.toString()}`
+      const url = `${API_BASE_URL}/pr/reviewers?${qs.toString()}`
 
       console.log(`Fetching reviewers from: ${url}`)
 

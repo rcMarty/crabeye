@@ -22,29 +22,29 @@ export const useSidebarStore = defineStore('sidebar', () => {
       icon: 'pe-7s-graph1',
       children: [
         {
-          id: 'pr-analytics',
-          title: 'PR Analytics',
-          route: '/pr-analytics'
+          id: 'pr-top-files',
+          title: 'Top Modified Files',
+          route: '/pr/top-files'
+        },
+        {
+          id: 'pr-status',
+          title: 'PR Status Distribution',
+          route: '/pr/status'
+        },
+        {
+          id: 'pr-waiting',
+          title: 'Waiting for Review',
+          route: '/pr/waiting'
+        },
+        {
+          id: 'pr-team-files',
+          title: 'Team File Changes',
+          route: '/pr/team-files'
         },
         {
           id: 'files-changed',
-          title: 'Files Changed',
+          title: 'Files Changed (Reviewers)',
           route: '/reviewers'
-        },
-        {
-          id: 'filter*demo',
-          title: 'Filters',
-          route: '/filters'
-        },
-        {
-          id: 'register',
-          title: 'Register',
-          route: '/pages/register-boxed'
-        },
-        {
-          id: 'forgot-password',
-          title: 'Forgot Password',
-          route: '/pages/forgot-password-boxed'
         }
       ]
     }
@@ -109,7 +109,6 @@ export const useSidebarStore = defineStore('sidebar', () => {
 
     // Find which submenu contains the current route
     const routeMap = {
-      '/pages/': 'pages',
       '/elements/': 'elements',
       '/components/': 'components',
       '/forms/': 'forms'

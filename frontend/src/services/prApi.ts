@@ -102,6 +102,25 @@ export interface WaitingForReviewParams {
   pagination?: Pagination | null
 }
 
+// Files Modified by Team Types
+export type GroupingLevel = null | number | 'all' | 'none'
+
+export interface FileNode {
+  name: string
+  modifications: number
+  children: FileNode[]
+}
+
+export type FilesModifiedResponse = Array<[string, number]> | FileNode
+
+export interface FilesModifiedByTeamParams {
+  repository: string
+  team_name: string
+  from_timestamp?: string | null
+  last_n_days?: number | null
+  group_level?: GroupingLevel
+}
+
 /**
  * Get users who made reviews on a specific file within a date range
  */
@@ -200,6 +219,35 @@ export async function getWaitingForReview(params: WaitingForReviewParams): Promi
   const response = await fetch(`${API_BASE_URL}/pr/waiting-for-review?${searchParams.toString()}`)
   if (!response.ok) {
     throw new Error(`Failed to fetch waiting PRs: ${response.statusText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Get files modified by a team within a time window
+ */
+export async function getFilesModifiedByTeam(params: FilesModifiedByTeamParams): Promise<FilesModifiedResponse> {
+  const searchParams = new URLSearchParams()
+  searchParams.set('repository', params.repository)
+  searchParams.set('team_name', params.team_name)
+
+  if (params.from_timestamp) {
+    searchParams.set('from_timestamp', params.from_timestamp)
+  }
+  if (params.last_n_days != null) {
+    searchParams.set('last_n_days', params.last_n_days.toString())
+  }
+  if (params.group_level !== undefined && params.group_level !== null) {
+    if (params.group_level === 'none' || params.group_level === 'all') {
+      searchParams.set('group_level', params.group_level)
+    } else {
+      searchParams.set('group_level', params.group_level.toString())
+    }
+  }
+
+  const response = await fetch(`${API_BASE_URL}/pr/files-modified-by-team?${searchParams.toString()}`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch files modified by team: ${response.statusText}`)
   }
   return response.json()
 }
