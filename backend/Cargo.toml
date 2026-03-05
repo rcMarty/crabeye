@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-octocrab = "0.49.5" # GitHub API client
+octocrab = { git = "https://github.com/rcMarty/octocrab.git" } # GitHub API client
 git2 = "0.20.4" # Git repository management
 axum = { version = "0.8.8", features = ["macros"] }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation
@@ -13,7 +13,7 @@ tower-http = { version = "0.6.8", features = ["cors"] }
 #trustfall = "0.8.0"  #query engine for all kind of data sources
 rust_team_data = { git = "https://github.com/rust-lang/team" }
 
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-native-tls", "macros", "migrate", "chrono"] }
+sqlx = { version = "0.8.6", features = ["default", "postgres", "runtime-tokio-native-tls", "macros", "migrate", "chrono"] }
 
 serde = { version = "1.0.228" }
 serde_json = "1.0.149"
@@ -29,6 +29,8 @@ secrecy = "0.10.3"  # secret codes and so on management (required by octocrab)
 anyhow = "1.0.100"   # error handling
 chrono = "0.4.42"   # date and time
 dotenvy = "0.15.7"
+
+indexmap = { version = "2.13.0", features = ["serde"] }
 
 # logging
 log = { version = "0.4.29", features = ["kv", "kv_serde", "kv_std", ] }

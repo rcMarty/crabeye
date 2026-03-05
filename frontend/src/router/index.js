@@ -19,27 +19,6 @@ export default createRouter({
       component: () => import('../DemoPages/Dashboards/AnalyticsEnhanced.vue')
     },
 
-    // Pages
-
-    {
-      path: '/pages/login-boxed',
-      name: 'login-boxed',
-      meta: { layout: 'userpages' },
-      component: () => import('../DemoPages/UserPages/LoginBoxed.vue')
-    },
-    {
-      path: '/pages/register-boxed',
-      name: 'register-boxed',
-      meta: { layout: 'userpages' },
-      component: () => import('../DemoPages/UserPages/RegisterBoxed.vue')
-    },
-    {
-      path: '/pages/forgot-password-boxed',
-      name: 'forgot-password-boxed',
-      meta: { layout: 'userpages' },
-      component: () => import('../DemoPages/UserPages/ForgotPasswordBoxed.vue')
-    },
-
     // Elements
 
     {
@@ -171,6 +150,28 @@ export default createRouter({
       path: '/reviewers',
       name: 'Reviewers',
       component: () => import('../pages/ReviewersList.vue')
+    },
+
+    // PR Analytics sub-pages
+    {
+      path: '/pr/top-files',
+      name: 'PrTopFiles',
+      component: () => import('../pages/pr/TopFilesPage.vue')
+    },
+    {
+      path: '/pr/status',
+      name: 'PrStatus',
+      component: () => import('../pages/pr/PrStatusPage.vue')
+    },
+    {
+      path: '/pr/waiting',
+      name: 'PrWaiting',
+      component: () => import('../pages/pr/PrWaitingPage.vue')
+    },
+    {
+      path: '/pr/team-files',
+      name: 'PrTeamFiles',
+      component: () => import('../pages/pr/TeamFilesPage.vue')
     }
   ]
 })

@@ -36,33 +36,6 @@
             </div>
           </router-link>
 
-          <!-- User Pages Section -->
-          <div class="menu-header">User Pages</div>
-
-          <div class="menu-item" :class="{ 'parent-active-item': isSubmenuActive('pages') }">
-            <div class="menu-link" @click="toggleSubmenu('pages')" :class="{ active: isSubmenuActive('pages') }">
-              <div class="menu-link-content">
-                <i class="metismenu-icon pe-7s-user"></i>
-                <span class="menu-text">Pages</span>
-              </div>
-              <i class="metismenu-state-icon pe-7s-angle-down" :class="{ 'rotate-minus-90': !submenus.pages }"></i>
-            </div>
-            <div class="menu-submenu" v-show="submenus.pages">
-              <router-link to="/pages/login-boxed" class="menu-sublink">
-                <i class="metismenu-icon"></i>
-                Login
-              </router-link>
-              <router-link to="/pages/register-boxed" class="menu-sublink">
-                <i class="metismenu-icon"></i>
-                Register
-              </router-link>
-              <router-link to="/pages/forgot-password-boxed" class="menu-sublink">
-                <i class="metismenu-icon"></i>
-                Forgot Password
-              </router-link>
-            </div>
-          </div>
-
           <!-- UI Elements Section -->
           <div class="menu-header">UI Elements</div>
 
@@ -218,7 +191,6 @@ export default {
       isOpen: false,
       windowWidth: 0,
       submenus: {
-        pages: false,
         elements: false,
         components: false,
         forms: false

@@ -8,8 +8,7 @@ use sqlx::Postgres;
 use sqlx::{FromRow, Row, Type};
 use std::hash::Hash;
 
-#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
 pub struct TeamMember {
     #[sqlx(try_from = "i64")]
     pub github_id: u64,
@@ -18,17 +17,16 @@ pub struct TeamMember {
     pub teams: Vec<Team>,
 }
 
-
-#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize)]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
 pub struct Team {
     pub team: String,
     pub subteam_of: Option<String>,
     pub kind: rust_team_data::v1::TeamKind,
 }
 
-#[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
-#[derive(Debug, Clone, )]
+#[derive(
+    sqlx::FromRow, serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug, Clone,
+)]
 pub struct Contributor {
     #[sqlx(try_from = "i64")]
     pub github_id: u64,

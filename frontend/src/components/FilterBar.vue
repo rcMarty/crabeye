@@ -1,12 +1,13 @@
 <script lang="ts" setup>
 import { reactive, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { toIsoDate } from '@/utils/dateFormat'
 
 const emit = defineEmits<{
-  (e: 'filters-changed', payload: { q: string; status: string; tags: string[] }): void
+  (_e: 'filters-changed', _payload: { q: string; status: string; tags: string[] }): void
   (
-    e: 'filters-submitted',
-    payload: {
+    _e: 'filters-submitted',
+    _payload: {
       q?: string
       status?: string
       tags?: string[]
@@ -30,9 +31,6 @@ const filters = reactive({
   last_n_days: null as number | null
 })
 
-// sample tag options (adjust to your app)
-const tagOptions = ['frontend', 'backend', 'bug', 'enhancement']
-
 // initialize from URL query
 onMounted(() => {
   const q = route.query.q
@@ -47,7 +45,7 @@ onMounted(() => {
   if (typeof tags === 'string') filters.tags = tags ? tags.split(',') : []
   if (Array.isArray(tags)) filters.tags = tags as string[]
   if (typeof file === 'string') filters.file = file
-  if (typeof from_date === 'string') filters.from_date = from_date
+  if (typeof from_date === 'string') filters.from_date = toIsoDate(from_date) || ''
   if (typeof last_n_days === 'string') {
     const n = parseInt(last_n_days, 10)
     filters.last_n_days = isNaN(n) ? null : n
@@ -86,13 +84,15 @@ function applyFilters() {
 }
 
 function submitFilters() {
+  const fromIsoDate = toIsoDate(filters.from_date)
+
   // emit richer payload for backend fetch
   emit('filters-submitted', {
     q: filters.q || undefined,
     status: filters.status || undefined,
     tags: filters.tags.length ? [...filters.tags] : undefined,
     file: filters.file || undefined,
-    from_date: filters.from_date || null,
+    from_date: fromIsoDate || null,
     last_n_days: filters.last_n_days ?? null
   })
   // also update URL and live changed event
@@ -108,11 +108,6 @@ function clearFilters() {
   applyFilters()
 }
 
-function toggleTag(tag: string) {
-  const idx = filters.tags.indexOf(tag)
-  if (idx === -1) filters.tags.push(tag)
-  else filters.tags.splice(idx, 1)
-}
 </script>
 
 <template>

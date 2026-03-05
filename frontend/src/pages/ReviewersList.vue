@@ -29,10 +29,12 @@ export default defineComponent({
       file?: string
       from_date?: string | null
       last_n_days?: number | null
+      repository?: string
     }) {
       searchTerm.value = payload.q ?? ''
       // reset to first page when applying new filters
       await store.fetchReviewers({
+        repository: payload.repository || 'rust-lang/rust',
         file: payload.file,
         from_date: payload.from_date ?? null,
         last_n_days: payload.last_n_days ?? null,

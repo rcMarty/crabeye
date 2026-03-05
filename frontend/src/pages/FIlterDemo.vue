@@ -15,8 +15,8 @@
 </template>
 
 <script lang="ts" setup>
-import {ref, computed} from 'vue'
-import {useRoute} from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import FilterBar from '@/components/FilterBar.vue'
 
 // const currentFilters = ref<Record<string, any>>({})

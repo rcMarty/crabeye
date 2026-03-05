@@ -9,7 +9,7 @@ pub struct PaginatedResponse<T> {
 }
 
 impl<T> PaginatedResponse<T> {
-    pub fn new(total_count: usize,pagination: Pagination, items: Vec<T>) -> Self {
+    pub fn new(total_count: usize, pagination: Pagination, items: Vec<T>) -> Self {
         Self {
             items,
             total_count,

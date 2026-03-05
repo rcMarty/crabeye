@@ -1,18 +1,23 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
+use serde::Deserialize;
+use std::collections::HashMap;
+use indexmap::IndexMap;
 
 pub mod app_state;
 pub mod docs;
+pub mod issues;
 pub mod review;
 pub mod webhooks;
-
 
 /// Optional pagination parameters
 /// Used in multiple endpoints
 /// If pagination is not provided, defaults are used
 /// See Pagination struct for details
 #[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone)]
-pub struct OptPagination {
+pub struct WaitingForReviewParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     pub pagination: Option<Pagination>,
 }
 /// Common pagination parameters
@@ -52,6 +57,8 @@ impl Pagination {
 /// Parameters for getting reviews for a specific file
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct ReviewParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    repository: String,
     /// File path to filter reviews, example = "src/lib.rs", exmple = "src/"
     file: String,
     ///Number of days to look back, default 7, example = 30
@@ -65,18 +72,21 @@ pub struct ReviewParams {
 /// Parameters for getting top N files modified by a user
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct PrTopFilesParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     /// User ID to get top files for
     pub name: String,
     /// Number of top files to return
     pub top_n: i64,
     /// Duration in days to look back, default is 10 days
     pub duration: Option<i64>,
-
 }
 
 /// Parameters for getting PR count by status
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub struct PrCountParams {
+    /// Repository identifier to filter PRs, example = "owner/repo"
+    pub repository: String,
     /// Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD
     pub timestamp: Option<NaiveDate>,
     /// Status of the pull requests to filter by
@@ -85,9 +95,118 @@ pub struct PrCountParams {
 
 /// Parameters for getting PR state at a specific timestamp
 #[derive(serde::Deserialize, schemars::JsonSchema)]
-pub struct PrStateParams {
+pub struct IssueStateParams {
+    /// Repository identifier to filter reviews, example = "owner/repo"
+    pub repository: String,
     /// Pull request number
-    pub pr: i64,
+    pub issue: i64,
     /// Timestamp to get the PR state at, format: YYYY-MM-DD
     pub timestamp: NaiveDate,
+}
+
+/// Parameters for getting files modified by a team
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct FilesModifiedByTeamParams {
+    /// Repository identifier to filter, example = "owner/repo"
+    pub repository: String,
+    /// Team name to filter contributors
+    pub team_name: String,
+    /// Optional start date (ISO 8601). default Now, example = "2025-01-01"
+    pub from_timestamp: Option<NaiveDate>,
+    /// Number of days to look back, default 7, example = 30
+    pub last_n_days: Option<i64>,
+    /// Group results by folder level
+    ///
+    /// - "none": Return a flat list of files with modification counts (default)
+    /// - Number (e.g., 1, 2): Group by folder hierarchy up to that depth level
+    /// - "all": Group by the full folder hierarchy
+    ///
+    /// Examples:
+    /// - 1: Groups into top-level folders (src/, library/, etc.)
+    /// - 2: Groups into subfolders (src/doc/, library/core/, etc.)
+    #[serde(default, deserialize_with = "deserialize_grouping_level")]
+    pub group_level: GroupingLevel,
+}
+
+#[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone, Default)]
+#[serde(untagged)]
+pub enum GroupingLevel {
+    #[default]
+    #[serde(rename = "none")]
+    NoGrouping,
+    GroupBy(i64),
+    #[serde(rename = "all")]
+    GroupByAll,
+}
+
+fn deserialize_grouping_level<'de, D>(deserializer: D) -> Result<GroupingLevel, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // helper enum
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum RawValue {
+        Str(String),
+        Int(i64),
+    }
+
+    let raw = RawValue::deserialize(deserializer)?;
+    match raw {
+        RawValue::Str(s) => match s.as_str() {
+            "none" | "" => Ok(GroupingLevel::NoGrouping),
+            "all" => Ok(GroupingLevel::GroupByAll),
+            _ => s.parse::<i64>().map(GroupingLevel::GroupBy).map_err(|_| {
+                serde::de::Error::custom("group_level musí být 'none', 'all', nebo číslo")
+            }),
+        },
+        RawValue::Int(n) => Ok(GroupingLevel::GroupBy(n)),
+    }
+}
+
+#[derive(serde::Serialize, Debug, Clone, schemars::JsonSchema)]
+pub struct FileNode {
+    pub name: String,
+    pub modifications: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<FileNode>,
+}
+
+pub struct BuilderFileNode {
+    name: String,
+    modifications: i64,
+    children: HashMap<String, BuilderFileNode>,
+}
+
+impl BuilderFileNode {
+    fn new(name: String) -> Self {
+        BuilderFileNode {
+            name,
+            modifications: 0,
+            children: HashMap::new(),
+        }
+    }
+    fn into_response(self) -> FileNode {
+        let mut children: Vec<FileNode> = self
+            .children
+            .into_values()
+            .map(|child| child.into_response())
+            .collect();
+
+        // sort children by modifications in descending order
+        children.sort_by(|a, b| b.modifications.cmp(&a.modifications));
+
+        FileNode {
+            name: self.name,
+            modifications: self.modifications,
+            children,
+        }
+    }
+}
+
+#[derive(serde::Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum FilesModifiedResponse {
+    List(IndexMap<String, i64>),
+    Tree(FileNode),
 }

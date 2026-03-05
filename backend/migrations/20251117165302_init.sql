@@ -1,21 +1,3 @@
--- TODO enum or text with check constraint
--- CREATE TYPE pr_state AS ENUM (
---     'open',
---     'closed',
---     'merged',
---     'S-waiting-on-review',
---     'S-waiting-on-bors',
---     'S-waiting-on-author'
---     );
-
--- TODO enum or text with check constraint
--- CREATE TYPE team_kind AS ENUM (
---     'team',
---     'working-group',
---     'project-group',
---     'marker-team'
---     );
-
 CREATE TABLE teams
 (
     team       TEXT PRIMARY KEY,
@@ -25,9 +7,10 @@ CREATE TABLE teams
 
 CREATE TABLE contributors_teams
 (
-    github_id BIGINT NOT NULL,
-    team      TEXT   NOT NULL REFERENCES teams (team),
-    PRIMARY KEY (github_id, team)
+    team           TEXT   NOT NULL REFERENCES teams (team),
+    contributor_id BIGINT NOT NULL,
+
+    PRIMARY KEY (team, contributor_id)
 );
 
 CREATE TABLE contributors
@@ -37,34 +20,62 @@ CREATE TABLE contributors
     name        TEXT
 );
 
-CREATE TABLE pull_requests
+
+CREATE TABLE issues
 (
-    pr             BIGINT PRIMARY KEY,
-    contributor_id BIGINT NOT NULL REFERENCES contributors (github_id),
-    current_state  TEXT   NOT NULL,
+    repository     TEXT      NOT NULL,
+    issue          BIGINT,
+    is_pr          BOOLEAN   NOT NULL,
+
+    contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
+    current_state  TEXT      NOT NULL,
+    timestamp      TIMESTAMP NOT NULL,
     merge_sha      TEXT,
-    timestamp      TIMESTAMP
+
+    PRIMARY KEY (repository, issue)
 );
 
-CREATE TABLE pr_state_history
+CREATE TABLE issue_event_history
 (
-    id        SERIAL PRIMARY KEY,
-    pr        BIGINT    NOT NULL REFERENCES pull_requests (pr),
-    state     TEXT      NOT NULL,
-    timestamp TIMESTAMP NOT NULL,
-    merge_sha TEXT
---     CHECK (
---         (state = 'merged' AND merge_sha IS NOT NULL) OR
---         (state <> 'merged' AND merge_sha IS NULL)
---         )
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    issue      BIGINT    NOT NULL,
+
+    is_pr      BOOLEAN   NOT NULL,
+
+    event      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
 );
+
+CREATE TABLE issue_labels_history
+(
+    id         SERIAL PRIMARY KEY,
+    repository TEXT      NOT NULL,
+    issue      BIGINT    NOT NULL,
+
+    is_pr      BOOLEAN   NOT NULL,
+
+    label      TEXT      NOT NULL,
+    timestamp  TIMESTAMP NOT NULL,
+    action     TEXT      NOT NULL CHECK ( action IN ('ADDED', 'REMOVED') ),
+
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
+);
+
+
 
 CREATE TABLE file_activity
 (
     id             SERIAL PRIMARY KEY,
-    pr             BIGINT    NOT NULL, -- REFERENCES pull_requests (pr),
+    repository     TEXT      NOT NULL,
+    issue          BIGINT    NOT NULL,
+
     file_path      TEXT      NOT NULL,
     contributor_id BIGINT    NOT NULL,
     activity_type  TEXT,
-    timestamp      TIMESTAMP NOT NULL
+    timestamp      TIMESTAMP NOT NULL,
+
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
 );
