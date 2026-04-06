@@ -34,7 +34,7 @@ impl SyncHandler {
             Self::url(repository_name.clone(), owner.clone()).as_str(),
             Path::new(&format!("./test_repos/{}", repository_name.as_str())),
         )
-        .unwrap();
+            .unwrap();
         let github = GitHubApi::new(
             Self::repository_identifier(repository_name.clone(), owner.clone()),
             owner,
@@ -42,7 +42,7 @@ impl SyncHandler {
             token,
             database.clone(),
         )
-        .unwrap();
+            .unwrap();
         Self {
             repo,
             github,
@@ -55,7 +55,7 @@ impl SyncHandler {
         let overall_time = Utc::now();
         //users section
         log::info!("Getting users from rust teams");
-        let users = self
+        let (teams, users) = self
             .github
             .get_authorized_users()
             .await
@@ -64,7 +64,7 @@ impl SyncHandler {
         log::info!("number of found rust teams users: {}", users.len());
 
         let timestamp_start = Utc::now();
-        if let Err(res) = self.database.upsert_team_members(&users).await {
+        if let Err(res) = self.database.upsert_team_members(&teams, &users).await {
             log::error!("Error: {:?}", res);
         }
         self.log_duration(
@@ -90,7 +90,7 @@ impl SyncHandler {
         let overall_time = Utc::now();
         //users section
         log::info!("Getting users from rust teams");
-        let users = self
+        let (teams, users) = self
             .github
             .get_authorized_users()
             .await
@@ -99,7 +99,7 @@ impl SyncHandler {
         log::info!("number of found rust teams users: {}", users.len());
 
         let timestamp_start = Utc::now();
-        if let Err(res) = self.database.upsert_team_members(&users).await {
+        if let Err(res) = self.database.upsert_team_members(&teams, &users).await {
             log::error!("Error: {:?}", res);
         }
         self.log_duration(
@@ -296,7 +296,7 @@ impl SyncHandler {
                 Ok(())
             },
         )
-        .await?;
+            .await?;
 
         self.log_duration(
             timestamp_start,

@@ -32,7 +32,7 @@ pub struct GitHubApi {
 
 /// Public functions about getting all the data from api
 impl GitHubApi {
-    pub async fn get_authorized_users(&self) -> Result<Vec<team_member::TeamMember>, String> {
+    pub async fn get_authorized_users(&self) -> Result<(Vec<Team>, Vec<team_member::TeamMember>), String> {
         let url = format!("{}/teams.json", ::rust_team_data::v1::BASE_URL);
         let client = reqwest::Client::new();
         let teams = client
@@ -47,6 +47,8 @@ impl GitHubApi {
             .map_err(|err| format!("failed to fetch authorized users 3: {}", err))
             .map(|teams| teams.teams.into_iter().map(|(_k, v)| v).collect::<Vec<_>>())
             .map_err(|err| format!("failed to fetch authorized users 4: {}", err))?;
+
+        log::debug!("launching pad exists:{}", teams.iter().filter(|team| team.name == "launching-pad").count());
 
         let authorized_users = teams
             .iter()
@@ -67,7 +69,7 @@ impl GitHubApi {
                     .collect::<Vec<team_member::TeamMember>>()
             })
             .collect::<Vec<team_member::TeamMember>>();
-        Ok(authorized_users)
+        Ok((teams, authorized_users))
     }
 
     pub async fn get_issues(
@@ -124,7 +126,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                             page += 1;
                         }
                     }
@@ -134,13 +136,6 @@ impl GitHubApi {
             }
             SyncMode::Last(no_of_pages) => {
                 log::info!("Synchronizing last {no_of_pages} pages of pull requests");
-                // let pages = if issues.number_of_pages() < Some(no_of_pages) {
-                //     log::warn!("Found less than requested ({no_of_pages}) pull requests");
-                //     log::warn!("Number of pages will be limited to {}", issues.number_of_pages().unwrap_or(10));
-                //     issues.number_of_pages().unwrap_or(10)
-                // } else {
-                //     no_of_pages
-                // };
                 let pages = no_of_pages;
 
                 with_progress_bar_async(
@@ -178,13 +173,13 @@ impl GitHubApi {
                                 pr,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                .await?;
+                    .await?;
                 Ok((parsed_issues, parsed_users))
             }
         }
@@ -228,10 +223,10 @@ impl GitHubApi {
                     match response.items.last().unwrap() {
                         pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
-                        {
-                            log::info!("No more pull requests to process, stopping at page {page}");
-                            break 'pageLoop;
-                        }
+                            {
+                                log::info!("No more pull requests to process, stopping at page {page}");
+                                break 'pageLoop;
+                            }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!(
@@ -249,7 +244,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                            .await;
+                                .await;
                             page += 1;
                         }
                     }
@@ -307,7 +302,7 @@ impl GitHubApi {
                         Ok(())
                     },
                 )
-                .await?;
+                    .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
@@ -336,8 +331,8 @@ impl GitHubApi {
                 Ok(())
             },
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 }
 
@@ -464,17 +459,17 @@ impl GitHubApi {
             Ok(timeline) => (
                 self.get_labels(issue_number, &timeline)
                     .map_err(|err| {
-                        log::warn!("Cannot get labels for PR #{}: {:#?}", issue_number, err)
+                        log::error!("Cannot get labels for PR #{}: {:#?}", issue_number, err)
                     })
                     .ok(),
                 self.get_events(issue_number, &timeline)
                     .map_err(|err| {
-                        log::warn!("Cannot get events for PR #{}: {:#?}", issue_number, err)
+                        log::error!("Cannot get events for PR #{}: {:#?}", issue_number, err)
                     })
                     .ok(),
             ),
             Err(e) => {
-                log::warn!(
+                log::error!(
                     "Cannot download timeline events for PR #{}: {:#?}",
                     issue_number,
                     e
@@ -528,9 +523,9 @@ impl GitHubApi {
                                     .expect("Missing created time"),
                                 None,
                             )
-                            .unwrap_or(PullRequestStatus::Open {
-                                time: pr.created_at.expect("Missing created time"),
-                            })
+                                .unwrap_or(PullRequestStatus::Open {
+                                    time: pr.created_at.expect("Missing created time"),
+                                })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
@@ -564,8 +559,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 
     async fn parse_issues(
@@ -633,8 +628,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-        .await
-        .unwrap();
+            .await
+            .unwrap();
     }
 }
 

@@ -40,6 +40,7 @@ impl Database {
     /// Returns an error if any SQL operation or the transaction commit fails.
     pub async fn upsert_team_members(
         &self,
+        teams: &[rust_team_data::v1::Team],
         team_members: &[model::team_member::TeamMember],
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
@@ -72,22 +73,17 @@ ON CONFLICT (github_id) DO UPDATE SET
             &github_names,
             &names
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
-        let teams: HashMap<&String, &Team> = team_members
-            .iter()
-            .flat_map(|tm| tm.teams.iter())
-            .map(|t| (&t.team, t)) // Přepíše starší výskyty novějšími
-            .collect();
         let mut team_names = Vec::with_capacity(teams.len());
         let mut team_subteams = Vec::with_capacity(teams.len());
         let mut team_kinds = Vec::with_capacity(teams.len());
 
-        for (name, team_data) in teams {
-            team_names.push(name);
-            team_subteams.push(team_data.subteam_of.clone());
-            team_kinds.push(Self::team_kind_to_str(team_data.kind));
+        for team in teams {
+            team_names.push(team.name.clone());
+            team_subteams.push(team.subteam_of.clone());
+            team_kinds.push(Self::team_kind_to_str(team.kind));
         }
 
         sqlx::query!(
@@ -98,12 +94,12 @@ ON CONFLICT (team) DO UPDATE SET
 subteam_of = EXCLUDED.subteam_of,
 kind = EXCLUDED.kind
 "#,
-            &team_names as &[&String],
+            team_names as Vec<String>,
             &team_subteams as &[Option<String>],
             &team_kinds as &[&str]
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         sqlx::query!("DELETE FROM contributors_teams")
             .execute(&mut *tx)
@@ -124,8 +120,8 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
             &member_ids,
             &member_teams,
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(())
@@ -153,8 +149,8 @@ where not exists (select 1 from contributors where github_id = $1);
                 user.github_name,
                 user.name
             )
-            .execute(&self.pool)
-            .await?;
+                .execute(&self.pool)
+                .await?;
         }
         Ok(())
     }
@@ -189,8 +185,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             event.get_merge_sha(),
             event.author_id
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // insert to issue_event_history
@@ -226,8 +222,8 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             &history_events as &[&str],
             &history_timestamps
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // 4. Insert do ISSUE_LABEL_HISTORY
@@ -259,8 +255,8 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
             &history_timestamps,
             &history_actions as &[&str]
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
 
@@ -331,8 +327,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             &merge_shas as &[Option<String>],
             &author_ids
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         if events.iter().all(|event| event.events_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
@@ -365,8 +361,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             user_id,
             activity.timestamp.naive_utc()
         )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -407,8 +403,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             &user_ids,
             &timestamps
         )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -476,8 +472,8 @@ WHERE issues.timestamp < EXCLUDED.timestamp
             &current_states as &[&str],
             &timestamps
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         if events.iter().all(|event| event.events_history.is_some())
             && events.iter().all(|event| event.labels_history.is_some())
@@ -621,8 +617,8 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
                 &actions as &[&str],
                 &is_prs,
             )
-            .execute(&mut **tx)
-            .await?;
+                .execute(&mut **tx)
+                .await?;
         } else {
             log::warn!("Some events are missing labels_history. Skipping labels history insertion for these events.");
         }
@@ -703,8 +699,8 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
                 &timestamps,
                 &is_prs,
             )
-            .execute(&mut **tx)
-            .await?;
+                .execute(&mut **tx)
+                .await?;
         } else {
             log::warn!("Some events are missing states_history. Skipping states history insertion for these events.");
         }

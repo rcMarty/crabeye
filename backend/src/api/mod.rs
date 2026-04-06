@@ -8,7 +8,6 @@ pub mod app_state;
 pub mod docs;
 pub mod issues;
 pub mod review;
-pub mod webhooks;
 
 /// Optional pagination parameters
 /// Used in multiple endpoints

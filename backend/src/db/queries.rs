@@ -36,12 +36,12 @@ GROUP BY fa.file_path
 ORDER BY editions DESC
         "#,
         )
-        .bind(repository)
-        .bind(timestamp_start)
-        .bind(timestamp_end)
-        .bind(team_name)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(repository)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .bind(team_name)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(entries.into_iter().collect())
     }
@@ -72,6 +72,11 @@ ORDER BY editions DESC
             .exists
             .unwrap_or(false);
         if !exists {
+            log::warn!(
+                "Issue {}#{} not found in database when querying events",
+                repository,
+                issue,
+            );
             return Ok(vec![]);
         }
 
@@ -148,11 +153,11 @@ WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp <= $3 and hist
 ORDER BY timestamp DESC
 "#,
         )
-        .bind(repository)
-        .bind(pr)
-        .bind(timestamp_start)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(repository)
+            .bind(pr)
+            .bind(timestamp_start)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut pr = match sqlx::query_as::<_, PrEvent>(
             r#"
@@ -177,11 +182,26 @@ WHERE repository = $1 and issue = $2 and is_pr = true
         Ok(Some(pr))
     }
 
-    /// Returns the number of PRs that had a given event recorded on the day of `timestamp`.
+
+    /// Returns the count of PRs that were in the given state on the given day.
     ///
-    /// Counts rows in `issue_event_history` where `is_pr = true`, `event` matches
-    /// `state.to_string()`, and the timestamp falls within the calendar day
-    /// `[00:00, 00:00 next day)`.
+    /// The day boundary is `00:00 UTC` of the given date.
+    /// State determination uses the full event and label history:
+    ///
+    /// - `WaitingForReview` / `WaitingForBors` / `WaitingForAuthor`: counts PRs whose most
+    ///   recent `issue_labels_history` row for the matching `S-*` label up to `timestamp` had
+    ///   `action = 'ADDED'`, **and** whose most recent "closed"/"merged"/"reopened" event was not
+    ///   "closed" or "merged" (i.e. PR was still open on that day).
+    ///
+    /// - `Merged`: counts all PRs that have a `"merged"` event in `issue_event_history` with
+    ///   `timestamp <= T`.  Once merged a PR stays merged, so this is a cumulative count.
+    ///
+    /// - `Closed`: counts PRs whose most recent `"closed"/"merged"/"reopened"` event up to `T`
+    ///   was `"closed"` (closed but not merged, and not later reopened).
+    ///
+    /// - `Open`: counts PRs where no `"closed"/"merged"` event exists up to `T`, or whose most
+    ///   recent such event was `"reopened"`.  The earliest recorded event (or `issues.timestamp`
+    ///   for PRs with no events) is used as a creation-time proxy to exclude PRs not yet created.
     ///
     /// # Errors
     /// Returns an error on SQL/DB failure.
@@ -192,27 +212,137 @@ WHERE repository = $1 and issue = $2 and is_pr = true
         timestamp: NaiveDate,
         state: PullRequestStatusRequest,
     ) -> Result<i64> {
-        let timestamp_start = timestamp.and_hms_opt(0, 0, 0).unwrap();
-        let timestamp_end = timestamp_start + chrono::Duration::days(1);
+        let ts = timestamp.and_hms_opt(0, 0, 0).unwrap();
 
-        //TODO to je naprosto špatně
-        let record = sqlx::query!(
-            r#"
-SELECT count(*) as count FROM issue_event_history
-WHERE timestamp BETWEEN $1 AND $2
-  AND event = $3
-  AND repository = $4
-  AND is_pr = true;
-               "#,
-            timestamp_start,
-            timestamp_end,
-            state.to_string(),
-            repository
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let (count,): (i64,) = match &state {
+            // ── Label-based waiting states ──────────────────────────────────────────────────
+            PullRequestStatusRequest::WaitingForReview
+            | PullRequestStatusRequest::WaitingForBors
+            | PullRequestStatusRequest::WaitingForAuthor => {
+                let label = state.to_string();
+                sqlx::query_as::<_, (i64,)>(
+                    r#"
+WITH latest_labels AS (
+    -- For each PR, keep only the most recent label event for the target S-* label up to T
+    SELECT DISTINCT ON (issue) issue, action
+    FROM issue_labels_history
+    WHERE repository = $1
+      AND is_pr     = true
+      AND label     = $3
+      AND timestamp <= $2
+    ORDER BY issue, timestamp DESC
+),
+latest_state AS (
+    -- For each PR, keep the most recent state-change event (closed / merged / reopened) up to T
+    SELECT DISTINCT ON (issue) issue, event
+    FROM issue_event_history
+    WHERE repository = $1
+      AND is_pr    = true
+      AND event   IN ('closed', 'merged', 'reopened')
+      AND timestamp <= $2
+    ORDER BY issue, timestamp DESC
+)
+SELECT COUNT(*)
+FROM latest_labels ll
+LEFT JOIN latest_state ls ON ls.issue = ll.issue
+WHERE ll.action = 'ADDED'
+  -- PR must be open at T (no close/merge event, or most recent was 'reopened')
+  AND (ls.issue IS NULL OR ls.event = 'reopened')
+                    "#,
+                )
+                .bind(repository)
+                .bind(ts)
+                .bind(&label)
+                .fetch_one(&self.pool)
+                .await?
+            }
 
-        Ok(record.count.unwrap())
+            // ── Merged ──────────────────────────────────────────────────────────────────────
+            // A PR is merged once it has a "merged" event; that state is permanent.
+            PullRequestStatusRequest::Merged => {
+                sqlx::query_as::<_, (i64,)>(
+                    r#"
+SELECT COUNT(DISTINCT issue)
+FROM issue_event_history
+WHERE repository = $1
+  AND is_pr     = true
+  AND event     = 'merged'
+  AND timestamp <= $2
+                    "#,
+                )
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
+            }
+
+            // ── Closed (not merged, not later reopened) ──────────────────────────────────
+            PullRequestStatusRequest::Closed => {
+                sqlx::query_as::<_, (i64,)>(
+                    r#"
+WITH latest_state AS (
+    SELECT DISTINCT ON (issue) issue, event
+    FROM issue_event_history
+    WHERE repository = $1
+      AND is_pr    = true
+      AND event   IN ('closed', 'merged', 'reopened')
+      AND timestamp <= $2
+    ORDER BY issue, timestamp DESC
+)
+SELECT COUNT(*)
+FROM latest_state
+WHERE event = 'closed'
+                    "#,
+                )
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
+            }
+
+            // ── Open (no close/merge event yet, or most recent was reopened) ─────────────
+            PullRequestStatusRequest::Open => {
+                sqlx::query_as::<_, (i64,)>(
+                    r#"
+WITH latest_state AS (
+    -- Most recent state-change event per PR up to T
+    SELECT DISTINCT ON (issue) issue, event
+    FROM issue_event_history
+    WHERE repository = $1
+      AND is_pr    = true
+      AND event   IN ('closed', 'merged', 'reopened')
+      AND timestamp <= $2
+    ORDER BY issue, timestamp DESC
+),
+first_event AS (
+    -- Approximate PR creation time as the earliest recorded event
+    SELECT issue, MIN(timestamp) as first_ts
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true
+    GROUP BY issue
+)
+SELECT COUNT(i.issue)
+FROM issues i
+LEFT JOIN latest_state ls ON ls.issue = i.issue
+LEFT JOIN first_event  fe ON fe.issue = i.issue
+WHERE i.repository = $1
+  AND i.is_pr = true
+  -- PR must be open at T
+  AND (ls.issue IS NULL OR ls.event = 'reopened')
+  -- PR must have existed before T:
+  -- use earliest known event if available, fall back to issues.timestamp
+  -- (for currently-open PRs issues.timestamp ~ created_at)
+  AND COALESCE(fe.first_ts, i.timestamp) <= $2
+                    "#,
+                )
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
+            }
+        };
+
+        Ok(count)
     }
 
     /// Returns up to `n` most recent file activity records for the given contributors
@@ -250,13 +380,13 @@ order by timestamp DESC
 LIMIT $5;
 "#,
         )
-        .bind(&ids)
-        .bind(timestamp_start)
-        .bind(timestamp_end)
-        .bind(repository)
-        .bind(n)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(&ids)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .bind(repository)
+            .bind(n)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(record)
     }
 
@@ -307,10 +437,10 @@ where github_id in
             timestamp_end,
             repository
         )
-        .fetch_one(&self.pool)
-        .await?
-        .count
-        .unwrap_or(0) as usize;
+            .fetch_one(&self.pool)
+            .await?
+            .count
+            .unwrap_or(0) as usize;
 
         let entries = sqlx::query_as::<_, Contributor>(
             r#"
@@ -328,14 +458,14 @@ where github_id in
         );
 "#,
         )
-        .bind(file_path)
-        .bind(timestamp_start)
-        .bind(timestamp_end)
-        .bind(repository)
-        .bind(offset)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(file_path)
+            .bind(timestamp_start)
+            .bind(timestamp_end)
+            .bind(repository)
+            .bind(offset)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(PaginatedResponse::new(count, pagination, entries))
     }
@@ -382,10 +512,10 @@ WHERE l.action = 'ADDED'
 "#,
             repository
         )
-        .fetch_one(&self.pool)
-        .await?
-        .count
-        .unwrap_or(0) as usize;
+            .fetch_one(&self.pool)
+            .await?
+            .count
+            .unwrap_or(0) as usize;
 
         let record = sqlx::query_as::<_, PrEvent>(
             r#"
@@ -415,11 +545,11 @@ OFFSET $2
 LIMIT $3;
         "#,
         )
-        .bind(repository)
-        .bind(offset)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(repository)
+            .bind(offset)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
 
         log::debug!(
             "return value from get_prs_waiting_for_review: \n{:?}",
