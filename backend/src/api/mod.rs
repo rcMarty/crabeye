@@ -8,6 +8,26 @@ pub mod app_state;
 pub mod docs;
 pub mod issues;
 pub mod review;
+pub mod teams;
+
+/// Unified error response returned by all API endpoints.
+#[derive(serde::Serialize, schemars::JsonSchema, Debug, Clone)]
+pub struct ApiError {
+    pub message: String,
+}
+
+impl ApiError {
+    pub fn new(message: impl Into<String>) -> Self {
+        ApiError { message: message.into() }
+    }
+}
+
+/// A single data point in a time-series response
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct DateCount {
+    pub date: NaiveDate,
+    pub count: i64,
+}
 
 /// Optional pagination parameters
 /// Used in multiple endpoints
@@ -57,15 +77,15 @@ impl Pagination {
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct ReviewParams {
     /// Repository identifier to filter reviews, example = "owner/repo"
-    repository: String,
-    /// File path to filter reviews, example = "src/lib.rs", exmple = "src/"
-    file: String,
-    ///Number of days to look back, default 7, example = 30
-    last_n_days: Option<i64>,
-    /// Start date (ISO 8601). default Now, example = "2025-01-01"
-    from_date: Option<NaiveDate>,
+    pub repository: String,
+    /// File path to filter reviews, example = "src/lib.rs", example = "src/"
+    pub file: String,
+    /// Number of days to look back, default 7, example = 30
+    pub last_n_days: Option<i64>,
+    /// Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = "2025-01-01"
+    pub anchor_date: Option<NaiveDate>,
 
-    pagination: Option<Pagination>,
+    pub pagination: Option<Pagination>,
 }
 
 /// Parameters for getting top N files modified by a user
@@ -73,12 +93,12 @@ pub struct ReviewParams {
 pub struct PrTopFilesParams {
     /// Repository identifier to filter reviews, example = "owner/repo"
     pub repository: String,
-    /// User ID to get top files for
+    /// User name to get top files for
     pub name: String,
     /// Number of top files to return
     pub top_n: i64,
-    /// Duration in days to look back, default is 10 days
-    pub duration: Option<i64>,
+    /// Number of days to look back, default is 10 days
+    pub last_n_days: Option<i64>,
 }
 
 /// Parameters for getting PR count by status
@@ -92,13 +112,26 @@ pub struct PrCountParams {
     pub state: PullRequestStatusRequest,
 }
 
-/// Parameters for getting PR state at a specific timestamp
+/// Parameters for getting PR count by status over a date range (time-series).
+/// Returns one count per day within the lookback window.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct PrCountOverTimeParams {
+    /// Repository identifier to filter PRs, example = "owner/repo"
+    pub repository: String,
+    /// Status of the pull requests to filter by
+    pub state: PullRequestStatusRequest,
+    /// Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = "2025-01-01"
+    pub anchor_date: Option<NaiveDate>,
+    /// Number of days to look back from anchor_date, default 7, max 90, example = 30
+    pub last_n_days: Option<i64>,
+}
+
+/// Parameters for getting PR/issue state at a specific timestamp.
+/// The issue/PR number is provided as a path parameter.
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub struct IssueStateParams {
     /// Repository identifier to filter reviews, example = "owner/repo"
     pub repository: String,
-    /// Pull request number
-    pub issue: i64,
     /// Timestamp to get the PR state at, format: YYYY-MM-DD
     pub timestamp: NaiveDate,
 }
@@ -110,8 +143,8 @@ pub struct FilesModifiedByTeamParams {
     pub repository: String,
     /// Team name to filter contributors
     pub team_name: String,
-    /// Optional start date (ISO 8601). default Now, example = "2025-01-01"
-    pub from_timestamp: Option<NaiveDate>,
+    /// Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = "2025-01-01"
+    pub anchor_date: Option<NaiveDate>,
     /// Number of days to look back, default 7, example = 30
     pub last_n_days: Option<i64>,
     /// Group results by folder level
@@ -156,7 +189,7 @@ where
             "none" | "" => Ok(GroupingLevel::NoGrouping),
             "all" => Ok(GroupingLevel::GroupByAll),
             _ => s.parse::<i64>().map(GroupingLevel::GroupBy).map_err(|_| {
-                serde::de::Error::custom("group_level musí být 'none', 'all', nebo číslo")
+                serde::de::Error::custom("group_level must be 'none', 'all', or a number")
             }),
         },
         RawValue::Int(n) => Ok(GroupingLevel::GroupBy(n)),
@@ -172,20 +205,20 @@ pub struct FileNode {
 }
 
 pub struct BuilderFileNode {
-    name: String,
-    modifications: i64,
-    children: HashMap<String, BuilderFileNode>,
+    pub name: String,
+    pub modifications: i64,
+    pub children: HashMap<String, BuilderFileNode>,
 }
 
 impl BuilderFileNode {
-    fn new(name: String) -> Self {
+    pub fn new(name: String) -> Self {
         BuilderFileNode {
             name,
             modifications: 0,
             children: HashMap::new(),
         }
     }
-    fn into_response(self) -> FileNode {
+    pub fn into_response(self) -> FileNode {
         let mut children: Vec<FileNode> = self
             .children
             .into_values()
@@ -204,8 +237,10 @@ impl BuilderFileNode {
 }
 
 #[derive(serde::Serialize, schemars::JsonSchema)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum FilesModifiedResponse {
-    List(IndexMap<String, i64>),
-    Tree(FileNode),
+    #[serde(rename = "list")]
+    List { data: IndexMap<String, i64> },
+    #[serde(rename = "tree")]
+    Tree { data: FileNode },
 }

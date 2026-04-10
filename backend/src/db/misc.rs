@@ -76,17 +76,19 @@ WHERE github_name ilike $1
     pub async fn get_issues_without_history(&self) -> Result<Vec<BackfillRecord>> {
         let records = sqlx::query_as::<Postgres, BackfillRecord>(
             r#"
-    select
-        repository as repository,
-        issue as issue_number,
-        is_pr as is_pr,
-        contributor_id as author_id
-    from issues
-    where (repository, issue) NOT IN (
-              SELECT repository, issue
-               FROM issue_event_history
-           );
-    "#,
+SELECT
+    i.repository  AS repository,
+    i.issue       AS issue_number,
+    i.is_pr       AS is_pr,
+    i.contributor_id AS author_id
+FROM issues i
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM issue_event_history e
+    WHERE e.repository = i.repository
+      AND e.issue = i.issue
+)
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;

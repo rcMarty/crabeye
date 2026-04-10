@@ -4,17 +4,17 @@ use super::*;
 impl Database {
     /// Returns a list of files modified by contributors of a given team within a specified time window.
     ///
-    /// The time window is defined by `from_timestamp` (defaults to today) and `last_n_days` (defaults to 7), and is aligned to full days (00:00 to 00:00). The query looks up contributors in the specified team and counts their modifications to files in the given repository within the time window. Results are ordered by modification count descending.
+    /// The time window is defined by `anchor_date` (defaults to today, end of window) and `last_n_days` (defaults to 7), and is aligned to full days (00:00 to 00:00). The query looks up contributors in the specified team and counts their modifications to files in the given repository within the time window. Results are ordered by modification count descending.
     /// # Errors
     /// Returns an error on SQL/DB failure.
     pub async fn get_files_modified_by_team(
         &self,
         repository: &str,
         team_name: &str,
-        from_timestamp: Option<NaiveDate>,
+        anchor_date: Option<NaiveDate>,
         last_n_days: Option<i64>,
     ) -> Result<HashMap<String, i64>> {
-        let timestamp_end = from_timestamp
+        let timestamp_end = anchor_date
             .unwrap_or_else(|| Utc::now().date_naive())
             .and_hms_opt(0, 0, 0)
             .unwrap();
@@ -25,13 +25,11 @@ impl Database {
             r#"
 SELECT fa.file_path, count(*) as editions
 FROM file_activity fa
+JOIN contributors_teams ct
+  ON ct.contributor_id = fa.contributor_id
+ AND ct.team = $4
 WHERE fa.repository = $1
-    AND fa.timestamp BETWEEN $2 AND $3
-    AND fa.contributor_id IN (
-        SELECT c.contributor_id
-        FROM contributors_teams c
-        WHERE c.team = $4
-    )
+  AND fa.timestamp BETWEEN $2 AND $3
 GROUP BY fa.file_path
 ORDER BY editions DESC
         "#,
@@ -214,7 +212,7 @@ WHERE repository = $1 and issue = $2 and is_pr = true
     ) -> Result<i64> {
         let ts = timestamp.and_hms_opt(0, 0, 0).unwrap();
 
-        let (count,): (i64,) = match &state {
+        let (count, ): (i64,) = match &state {
             // ── Label-based waiting states ──────────────────────────────────────────────────
             PullRequestStatusRequest::WaitingForReview
             | PullRequestStatusRequest::WaitingForBors
@@ -250,11 +248,11 @@ WHERE ll.action = 'ADDED'
   AND (ls.issue IS NULL OR ls.event = 'reopened')
                     "#,
                 )
-                .bind(repository)
-                .bind(ts)
-                .bind(&label)
-                .fetch_one(&self.pool)
-                .await?
+                    .bind(repository)
+                    .bind(ts)
+                    .bind(&label)
+                    .fetch_one(&self.pool)
+                    .await?
             }
 
             // ── Merged ──────────────────────────────────────────────────────────────────────
@@ -270,10 +268,10 @@ WHERE repository = $1
   AND timestamp <= $2
                     "#,
                 )
-                .bind(repository)
-                .bind(ts)
-                .fetch_one(&self.pool)
-                .await?
+                    .bind(repository)
+                    .bind(ts)
+                    .fetch_one(&self.pool)
+                    .await?
             }
 
             // ── Closed (not merged, not later reopened) ──────────────────────────────────
@@ -294,10 +292,10 @@ FROM latest_state
 WHERE event = 'closed'
                     "#,
                 )
-                .bind(repository)
-                .bind(ts)
-                .fetch_one(&self.pool)
-                .await?
+                    .bind(repository)
+                    .bind(ts)
+                    .fetch_one(&self.pool)
+                    .await?
             }
 
             // ── Open (no close/merge event yet, or most recent was reopened) ─────────────
@@ -335,14 +333,261 @@ WHERE i.repository = $1
   AND COALESCE(fe.first_ts, i.timestamp) <= $2
                     "#,
                 )
-                .bind(repository)
-                .bind(ts)
-                .fetch_one(&self.pool)
-                .await?
+                    .bind(repository)
+                    .bind(ts)
+                    .fetch_one(&self.pool)
+                    .await?
             }
         };
 
         Ok(count)
+    }
+
+    /// Returns per-day PR counts in the given state over a date range, using a single SQL query.
+    ///
+    /// The window is `[anchor_date - last_n_days, anchor_date]` aligned to day boundaries.
+    ///
+    /// Instead of re-scanning event tables for every day (LATERAL), this computes
+    /// **time intervals** when each PR was in the target state (via `LEAD` window functions),
+    /// then counts how many intervals overlap each day with a range join.
+    /// Each table is scanned once; complexity is O(events + days × active_periods).
+    ///
+    /// # Errors
+    /// Returns an error on SQL/DB failure.
+    pub async fn get_pr_count_in_state_over_time(
+        &self,
+        repository: &str,
+        anchor_date: NaiveDate,
+        last_n_days: i64,
+        state: PullRequestStatusRequest,
+    ) -> Result<Vec<(NaiveDate, i64)>> {
+        let ts_end = anchor_date.and_hms_opt(0, 0, 0).unwrap();
+        let ts_start = ts_end - chrono::Duration::days(last_n_days);
+
+        let rows: Vec<(NaiveDate, i64)> = match &state {
+            // ── Label-based waiting states ───────────────────────────────────────
+            // A PR is "in state" when the label is ADDED *and* the PR is open.
+            // 1. Build open_periods  from creation/reopen → next close/merge  (LEAD)
+            // 2. Build label_active  from ADDED → next label event            (LEAD)
+            // 3. Intersect the two period sets → in_state_periods
+            // 4. Count distinct PRs whose period covers each day
+            PullRequestStatusRequest::WaitingForReview
+            | PullRequestStatusRequest::WaitingForBors
+            | PullRequestStatusRequest::WaitingForAuthor => {
+                let label = state.to_string();
+                sqlx::query_as::<_, (NaiveDate, i64)>(
+                    r#"
+WITH
+-- Unified timeline of PR open/close transitions
+all_transitions AS (
+    SELECT issue, timestamp, 'created' AS event_type
+    FROM issues
+    WHERE repository = $1 AND is_pr = true
+    UNION ALL
+    SELECT issue, timestamp, event AS event_type
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true
+      AND event IN ('closed', 'merged', 'reopened')
+),
+ordered_transitions AS (
+    SELECT issue, timestamp, event_type,
+           LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
+    FROM all_transitions
+),
+-- Periods when a PR is open: [created|reopened, next close/merge)
+open_periods AS (
+    SELECT issue,
+           timestamp AS start_ts,
+           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+    FROM ordered_transitions
+    WHERE event_type IN ('created', 'reopened')
+),
+-- Label ADDED/REMOVED transitions
+label_transitions AS (
+    SELECT issue, timestamp, action,
+           LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
+    FROM issue_labels_history
+    WHERE repository = $1 AND is_pr = true AND label = $4
+),
+-- Periods when the label is active: [ADDED, next label event)
+label_active_periods AS (
+    SELECT issue,
+           timestamp AS start_ts,
+           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+    FROM label_transitions
+    WHERE action = 'ADDED'
+),
+-- Intersection: PR is in target state when BOTH open AND label active
+in_state_periods AS (
+    SELECT lap.issue,
+           GREATEST(lap.start_ts, op.start_ts) AS start_ts,
+           LEAST(lap.end_ts, op.end_ts)         AS end_ts
+    FROM label_active_periods lap
+    JOIN open_periods op
+      ON lap.issue = op.issue
+     AND lap.start_ts < op.end_ts
+     AND lap.end_ts   > op.start_ts
+),
+date_series AS (
+    SELECT d::date AS day
+    FROM generate_series($2::timestamp, $3::timestamp, '1 day'::interval) d
+)
+SELECT ds.day AS date, COUNT(DISTINCT isp.issue) AS count
+FROM date_series ds
+LEFT JOIN in_state_periods isp
+       ON ds.day >= isp.start_ts::date
+      AND ds.day <  isp.end_ts::date
+GROUP BY ds.day
+ORDER BY ds.day
+                    "#,
+                )
+                    .bind(repository)
+                    .bind(ts_start)
+                    .bind(ts_end)
+                    .bind(&label)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+
+            // ── Merged ──────────────────────────────────────────────────────────
+            // Once merged, always merged → cumulative count.
+            // 1. Find each PR's first merge date
+            // 2. Count merges before the range (base)
+            // 3. Running SUM of daily new merges over the date series
+            PullRequestStatusRequest::Merged => {
+                sqlx::query_as::<_, (NaiveDate, i64)>(
+                    r#"
+WITH
+first_merges AS (
+    SELECT issue, MIN(timestamp)::date AS merged_date
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true AND event = 'merged'
+    GROUP BY issue
+),
+pre_range AS (
+    SELECT COUNT(*) AS cnt
+    FROM first_merges
+    WHERE merged_date < $2::date
+),
+daily_merges AS (
+    SELECT merged_date, COUNT(*) AS cnt
+    FROM first_merges
+    WHERE merged_date BETWEEN $2::date AND $3::date
+    GROUP BY merged_date
+),
+date_series AS (
+    SELECT d::date AS day
+    FROM generate_series($2::timestamp, $3::timestamp, '1 day'::interval) d
+)
+SELECT ds.day AS date,
+       (SELECT cnt FROM pre_range)
+         + COALESCE(SUM(dm.cnt) OVER (ORDER BY ds.day), 0) AS count
+FROM date_series ds
+LEFT JOIN daily_merges dm ON dm.merged_date = ds.day
+ORDER BY ds.day
+                    "#,
+                )
+                    .bind(repository)
+                    .bind(ts_start)
+                    .bind(ts_end)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+
+            // ── Closed (not merged, not later reopened) ─────────────────────────
+            // A PR is "closed" from a 'closed' event until the next state event.
+            // 1. LEAD over state events to build closed periods
+            // 2. Count distinct PRs whose closed period covers each day
+            PullRequestStatusRequest::Closed => {
+                sqlx::query_as::<_, (NaiveDate, i64)>(
+                    r#"
+WITH
+state_transitions AS (
+    SELECT issue, timestamp, event,
+           LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true
+      AND event IN ('closed', 'merged', 'reopened')
+),
+closed_periods AS (
+    SELECT issue,
+           timestamp AS start_ts,
+           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+    FROM state_transitions
+    WHERE event = 'closed'
+),
+date_series AS (
+    SELECT d::date AS day
+    FROM generate_series($2::timestamp, $3::timestamp, '1 day'::interval) d
+)
+SELECT ds.day AS date, COUNT(DISTINCT cp.issue) AS count
+FROM date_series ds
+LEFT JOIN closed_periods cp
+       ON ds.day >= cp.start_ts::date
+      AND ds.day <  cp.end_ts::date
+GROUP BY ds.day
+ORDER BY ds.day
+                    "#,
+                )
+                    .bind(repository)
+                    .bind(ts_start)
+                    .bind(ts_end)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+
+            // ── Open (created/reopened, not yet closed/merged) ──────────────────
+            // 1. Build open periods from creation/reopen → next close/merge (same
+            //    CTE pattern as the label-based states)
+            // 2. Count distinct PRs whose open period covers each day
+            PullRequestStatusRequest::Open => {
+                sqlx::query_as::<_, (NaiveDate, i64)>(
+                    r#"
+WITH
+all_transitions AS (
+    SELECT issue, timestamp, 'created' AS event_type
+    FROM issues
+    WHERE repository = $1 AND is_pr = true
+    UNION ALL
+    SELECT issue, timestamp, event AS event_type
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true
+      AND event IN ('closed', 'merged', 'reopened')
+),
+ordered_transitions AS (
+    SELECT issue, timestamp, event_type,
+           LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
+    FROM all_transitions
+),
+open_periods AS (
+    SELECT issue,
+           timestamp AS start_ts,
+           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+    FROM ordered_transitions
+    WHERE event_type IN ('created', 'reopened')
+),
+date_series AS (
+    SELECT d::date AS day
+    FROM generate_series($2::timestamp, $3::timestamp, '1 day'::interval) d
+)
+SELECT ds.day AS date, COUNT(DISTINCT op.issue) AS count
+FROM date_series ds
+LEFT JOIN open_periods op
+       ON ds.day >= op.start_ts::date
+      AND ds.day <  op.end_ts::date
+GROUP BY ds.day
+ORDER BY ds.day
+                    "#,
+                )
+                    .bind(repository)
+                    .bind(ts_start)
+                    .bind(ts_end)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
+
+        Ok(rows)
     }
 
     /// Returns up to `n` most recent file activity records for the given contributors
@@ -394,7 +639,7 @@ LIMIT $5;
     /// within the given time window.
     ///
     /// `file_path` is treated as a SQL `LIKE` prefix (`file_path%`). The search window ends at
-    /// `from_timestamp` (defaults to today) and extends back `last_n_days` days (defaults to 7).
+    /// `anchor_date` (defaults to today) and extends back `last_n_days` days (defaults to 7).
     /// Two queries are run: one for the total distinct-contributor count, one for the paginated page.
     ///
     /// # Errors
@@ -405,11 +650,11 @@ LIMIT $5;
         &self,
         repository: &str,
         file_path: String,
-        from_timestamp: Option<NaiveDate>,
+        anchor_date: Option<NaiveDate>,
         last_n_days: Option<i64>,
         pagination: Pagination,
     ) -> Result<PaginatedResponse<Contributor>> {
-        let timestamp_end = from_timestamp
+        let timestamp_end = anchor_date
             .unwrap_or(Utc::now().date_naive())
             .and_hms_opt(0, 0, 0)
             .unwrap();
@@ -421,16 +666,11 @@ LIMIT $5;
 
         let count = sqlx::query!(
             r#"
-select count(distinct github_id) as count
-from contributors
-where github_id in
-(
-        select distinct contributor_id
-        from file_activity
-        where file_path like $1
-            and timestamp between $2 and $3
-            and repository = $4
-        );
+SELECT count(distinct contributor_id) as count
+FROM file_activity
+WHERE file_path like $1
+  AND timestamp between $2 and $3
+  AND repository = $4
 "#,
             file_path,
             timestamp_start,
@@ -444,18 +684,17 @@ where github_id in
 
         let entries = sqlx::query_as::<_, Contributor>(
             r#"
-select distinct github_id, github_name, name
-from contributors
-where github_id in
-      (
-        select distinct contributor_id
-        from file_activity
-        where file_path like $1
-            and timestamp between $2 and $3
-            and repository = $4
-        order by contributor_id
-        offset $5 limit $6
-        );
+SELECT c.github_id, c.github_name, c.name
+FROM contributors c
+JOIN (
+    SELECT DISTINCT contributor_id
+    FROM file_activity
+    WHERE file_path LIKE $1
+      AND timestamp BETWEEN $2 AND $3
+      AND repository = $4
+    ORDER BY contributor_id
+    OFFSET $5 LIMIT $6
+) fa ON fa.contributor_id = c.github_id
 "#,
         )
             .bind(file_path)
@@ -501,6 +740,7 @@ WITH current_waiting_labels AS (
         action
     FROM issue_labels_history
     WHERE repository = $1
+      AND is_pr = true
       AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
     ORDER BY issue, label, timestamp DESC
 )
@@ -527,6 +767,7 @@ WITH current_waiting_labels AS (
         action
     FROM issue_labels_history
     WHERE repository = $1
+      AND is_pr = true
       AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
     ORDER BY issue, label, timestamp DESC
 )
