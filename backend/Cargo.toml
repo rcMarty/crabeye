@@ -9,6 +9,7 @@ git2 = "0.20.4" # Git repository management
 axum = { version = "0.8.8", features = ["macros"] }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation
 tower-http = { version = "0.6.8", features = ["cors"] }
+backoff = { version = "0.4", features = ["tokio"] }
 
 #trustfall = "0.8.0"  #query engine for all kind of data sources
 rust_team_data = { git = "https://github.com/rust-lang/team" }
