@@ -16,26 +16,26 @@
         "parameters": [
           {
             "in": "query",
-            "name": "file",
-            "description": "File path to filter reviews, example = \"src/lib.rs\", exmple = \"src/\"",
-            "required": true,
+            "name": "anchor_date",
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
             "schema": {
-              "description": "File path to filter reviews, example = \"src/lib.rs\", exmple = \"src/\"",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "in": "query",
-            "name": "from_date",
-            "description": "Start date (ISO 8601). default Now, example = \"2025-01-01\"",
-            "schema": {
-              "description": "Start date (ISO 8601). default Now, example = \"2025-01-01\"",
+              "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
               "type": [
                 "string",
                 "null"
               ],
               "format": "date"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "file",
+            "description": "File path to filter reviews, example = \"src/lib.rs\", example = \"src/\"",
+            "required": true,
+            "schema": {
+              "description": "File path to filter reviews, example = \"src/lib.rs\", example = \"src/\"",
+              "type": "string"
             },
             "style": "form"
           },
@@ -92,11 +92,11 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -109,14 +109,14 @@
         "tags": [
           "PR"
         ],
-        "description": "Get top N files modified by a user within a duration",
+        "description": "Get the N most recent file touches by a user within a time window",
         "parameters": [
           {
             "in": "query",
-            "name": "duration",
-            "description": "Duration in days to look back, default is 10 days",
+            "name": "last_n_days",
+            "description": "Number of days to look back, default is 10 days",
             "schema": {
-              "description": "Duration in days to look back, default is 10 days",
+              "description": "Number of days to look back, default is 10 days",
               "type": [
                 "integer",
                 "null"
@@ -128,10 +128,10 @@
           {
             "in": "query",
             "name": "name",
-            "description": "User ID to get top files for",
+            "description": "User name to get top files for",
             "required": true,
             "schema": {
-              "description": "User ID to get top files for",
+              "description": "User name to get top files for",
               "type": "string"
             },
             "style": "form"
@@ -175,21 +175,21 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -254,11 +254,11 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -266,25 +266,98 @@
         }
       }
     },
-    "/api/pr/pr-history": {
+    "/api/pr/prs-in-state-over-time": {
       "get": {
         "tags": [
           "PR"
         ],
-        "description": "Get the states and lables of a PR at a specific timestamp",
+        "description": "Get count of PRs in a specific state for each day in a lookback window (time-series)",
         "parameters": [
           {
             "in": "query",
-            "name": "issue",
-            "description": "Pull request number",
-            "required": true,
+            "name": "anchor_date",
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
             "schema": {
-              "description": "Pull request number",
-              "type": "integer",
+              "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "last_n_days",
+            "description": "Number of days to look back from anchor_date, default 7, max 90, example = 30",
+            "schema": {
+              "description": "Number of days to look back from anchor_date, default 7, max 90, example = 30",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64"
             },
             "style": "form"
           },
+          {
+            "in": "query",
+            "name": "repository",
+            "description": "Repository identifier to filter PRs, example = \"owner/repo\"",
+            "required": true,
+            "schema": {
+              "description": "Repository identifier to filter PRs, example = \"owner/repo\"",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "description": "Status of the pull requests to filter by",
+            "required": true,
+            "schema": {
+              "description": "Status of the pull requests to filter by",
+              "$ref": "#/components/schemas/PullRequestStatusRequest"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DateCount"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unified error response returned by all API endpoints.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pr/pr-history/{issue}": {
+      "get": {
+        "tags": [
+          "PR"
+        ],
+        "description": "Get the states and labels of a PR at a specific timestamp",
+        "parameters": [
           {
             "in": "query",
             "name": "repository",
@@ -321,21 +394,21 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -389,11 +462,11 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -410,10 +483,10 @@
         "parameters": [
           {
             "in": "query",
-            "name": "from_timestamp",
-            "description": "Optional start date (ISO 8601). default Now, example = \"2025-01-01\"",
+            "name": "anchor_date",
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
             "schema": {
-              "description": "Optional start date (ISO 8601). default Now, example = \"2025-01-01\"",
+              "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
               "type": [
                 "string",
                 "null"
@@ -481,21 +554,21 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
           },
           "500": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -503,25 +576,13 @@
         }
       }
     },
-    "/api/issue/issue-events": {
+    "/api/issue/issue-events/{issue}": {
       "get": {
         "tags": [
           "Issue"
         ],
         "description": "Get the state of an Issue at a specific timestamp",
         "parameters": [
-          {
-            "in": "query",
-            "name": "issue",
-            "description": "Pull request number",
-            "required": true,
-            "schema": {
-              "description": "Pull request number",
-              "type": "integer",
-              "format": "int64"
-            },
-            "style": "form"
-          },
           {
             "in": "query",
             "name": "repository",
@@ -554,28 +615,61 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PullRequestStatus"
+                    "$ref": "#/components/schemas/IssueEvent"
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "",
+            "description": "Unified error response returned by all API endpoints.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
           },
           "500": {
+            "description": "Unified error response returned by all API endpoints.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams": {
+      "get": {
+        "tags": [
+          "Meta"
+        ],
+        "description": "List all known teams (for populating frontend selectors)",
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unified error response returned by all API endpoints.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -652,6 +746,18 @@
   },
   "components": {
     "schemas": {
+      "ApiError": {
+        "description": "Unified error response returned by all API endpoints.",
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
       "Contributor": {
         "type": "object",
         "properties": {
@@ -673,6 +779,24 @@
         "required": [
           "github_id",
           "github_name"
+        ]
+      },
+      "DateCount": {
+        "description": "A single data point in a time-series response",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "date",
+          "count"
         ]
       },
       "FileNode": {
@@ -702,8 +826,8 @@
         "description": "Parameters for getting files modified by a team",
         "type": "object",
         "properties": {
-          "from_timestamp": {
-            "description": "Optional start date (ISO 8601). default Now, example = \"2025-01-01\"",
+          "anchor_date": {
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
             "type": [
               "string",
               "null"
@@ -741,16 +865,42 @@
         ]
       },
       "FilesModifiedResponse": {
-        "anyOf": [
+        "oneOf": [
           {
             "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int64"
-            }
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "list"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ]
           },
           {
-            "$ref": "#/components/schemas/FileNode"
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "tree"
+              },
+              "data": {
+                "$ref": "#/components/schemas/FileNode"
+              }
+            },
+            "required": [
+              "type",
+              "data"
+            ]
           }
         ]
       },
@@ -805,14 +955,9 @@
         ]
       },
       "IssueStateParams": {
-        "description": "Parameters for getting PR state at a specific timestamp",
+        "description": "Parameters for getting PR/issue state at a specific timestamp.\n The issue/PR number is provided as a path parameter.",
         "type": "object",
         "properties": {
-          "issue": {
-            "description": "Pull request number",
-            "type": "integer",
-            "format": "int64"
-          },
           "repository": {
             "description": "Repository identifier to filter reviews, example = \"owner/repo\"",
             "type": "string"
@@ -825,7 +970,6 @@
         },
         "required": [
           "repository",
-          "issue",
           "timestamp"
         ]
       },
@@ -918,6 +1062,44 @@
           "per_page"
         ]
       },
+      "PrCountOverTimeParams": {
+        "description": "Parameters for getting PR count by status over a date range (time-series).\n Returns one count per day within the lookback window.",
+        "type": "object",
+        "properties": {
+          "anchor_date": {
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "last_n_days": {
+            "description": "Number of days to look back from anchor_date, default 7, max 90, example = 30",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "repository": {
+            "description": "Repository identifier to filter PRs, example = \"owner/repo\"",
+            "type": "string"
+          },
+          "state": {
+            "description": "Status of the pull requests to filter by",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PullRequestStatusRequest"
+              }
+            ]
+          }
+        },
+        "required": [
+          "repository",
+          "state"
+        ]
+      },
       "PrCountParams": {
         "description": "Parameters for getting PR count by status",
         "type": "object",
@@ -995,8 +1177,8 @@
         "description": "Parameters for getting top N files modified by a user",
         "type": "object",
         "properties": {
-          "duration": {
-            "description": "Duration in days to look back, default is 10 days",
+          "last_n_days": {
+            "description": "Number of days to look back, default is 10 days",
             "type": [
               "integer",
               "null"
@@ -1004,7 +1186,7 @@
             "format": "int64"
           },
           "name": {
-            "description": "User ID to get top files for",
+            "description": "User name to get top files for",
             "type": "string"
           },
           "repository": {
@@ -1173,17 +1355,17 @@
         "description": "Parameters for getting reviews for a specific file",
         "type": "object",
         "properties": {
-          "file": {
-            "description": "File path to filter reviews, example = \"src/lib.rs\", exmple = \"src/\"",
-            "type": "string"
-          },
-          "from_date": {
-            "description": "Start date (ISO 8601). default Now, example = \"2025-01-01\"",
+          "anchor_date": {
+            "description": "Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
             "type": [
               "string",
               "null"
             ],
             "format": "date"
+          },
+          "file": {
+            "description": "File path to filter reviews, example = \"src/lib.rs\", example = \"src/\"",
+            "type": "string"
           },
           "last_n_days": {
             "description": "Number of days to look back, default 7, example = 30",

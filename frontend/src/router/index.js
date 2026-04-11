@@ -42,6 +42,11 @@ export default createRouter({
       name: 'PrTeamFiles',
       component: () => import('../pages/pr/TeamFilesPage.vue')
     },
+    {
+      path: '/pr/history',
+      name: 'PrHistory',
+      component: () => import('../pages/pr/PrHistoryPage.vue')
+    },
 
     // Issues
     {

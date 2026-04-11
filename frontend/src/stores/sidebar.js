@@ -45,6 +45,29 @@ export const useSidebarStore = defineStore('sidebar', () => {
           id: 'files-changed',
           title: 'Files Changed (Reviewers)',
           route: '/reviewers'
+        },
+        {
+          id: 'pr-history',
+          title: 'PR History',
+          route: '/pr/history'
+        }
+      ]
+    },
+    {
+      id: 'issues-header',
+      type: 'header',
+      title: 'Issues'
+    },
+    {
+      id: 'issues',
+      type: 'submenu',
+      title: 'Issues',
+      icon: 'pe-7s-ticket',
+      children: [
+        {
+          id: 'issue-events',
+          title: 'Issue Events',
+          route: '/issues/events'
         }
       ]
     }
