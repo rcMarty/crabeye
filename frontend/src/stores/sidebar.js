@@ -32,6 +32,11 @@ export const useSidebarStore = defineStore('sidebar', () => {
           route: '/pr/status'
         },
         {
+          id: 'pr-status-over-time',
+          title: 'State Over Time',
+          route: '/pr/status-over-time'
+        },
+        {
           id: 'pr-waiting',
           title: 'Waiting for Review',
           route: '/pr/waiting'
@@ -132,6 +137,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
 
     // Find which submenu contains the current route
     const routeMap = {
+      '/pr/': 'pull-requests',
+      '/reviewers': 'pull-requests',
+      '/issues/': 'issues',
       '/elements/': 'elements',
       '/components/': 'components',
       '/forms/': 'forms'

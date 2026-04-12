@@ -7,6 +7,7 @@ import {
   getPrHistory,
   getStatusType,
   getStatusTime,
+  DEFAULT_REPOSITORY,
   type PrEvent,
   type PullRequestStatusType,
   type IssueEvent,
@@ -17,7 +18,7 @@ const route = useRoute()
 const router = useRouter()
 
 // --- Filter state ---
-const repository = ref<string>('rust-lang/rust')
+const repository = ref<string>(DEFAULT_REPOSITORY)
 const issueNumber = ref<string>('')
 const timestamp = ref<string>('')
 

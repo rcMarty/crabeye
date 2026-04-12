@@ -3,12 +3,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { BCard, BButton, BFormInput, BSpinner, BAlert } from 'bootstrap-vue-next'
 import DoughnutChartComponent from '@/components/Charts/DoughnutChartComponent.vue'
-import { getWaitingForReview, PrEvent, getStatusType } from '@/services/prApi'
+import { getWaitingForReview, PrEvent, getStatusType, DEFAULT_REPOSITORY } from '@/services/prApi'
 
 const route = useRoute()
 const router = useRouter()
 
-const repository = ref<string>('rust-lang/rust')
+const repository = ref<string>(DEFAULT_REPOSITORY)
 const waitingPrs = ref<PrEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)

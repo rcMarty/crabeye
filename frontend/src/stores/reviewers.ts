@@ -1,8 +1,9 @@
 // File: `src/stores/reviewers.ts`
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { DEFAULT_REPOSITORY } from '@/services/prApi'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+const API_BASE_URL = import.meta.env.VITE_BACKEND_API_BASE_URL || 'http://localhost:7878/api'
 
 export interface Reviewer {
   github_name: string
@@ -23,16 +24,16 @@ export const useReviewersStore = defineStore('reviewers', () => {
   const perPage = ref<number>(10)
   const isLoading = ref<boolean>(false)
   const error = ref<string | null>(null)
-  const lastRepository = ref<string>('rust-lang/rust')
+  const lastRepository = ref<string>(DEFAULT_REPOSITORY)
   const lastFile = ref<string | undefined>(undefined)
-  const lastFromDate = ref<string | null>(null)
+  const lastAnchorDate = ref<string | null>(null)
   const lastNDays = ref<number | null>(null)
 
   async function fetchReviewers(
     params: {
       repository: string
       file?: string
-      from_date?: string | null
+      anchor_date?: string | null
       last_n_days?: number | null
       page?: number
       per_page?: number
@@ -42,7 +43,7 @@ export const useReviewersStore = defineStore('reviewers', () => {
     const effectiveParams: {
       repository: string
       file?: string
-      from_date?: string | null
+      anchor_date?: string | null
       last_n_days?: number | null
       page?: number
       per_page?: number
@@ -59,8 +60,8 @@ export const useReviewersStore = defineStore('reviewers', () => {
         effectiveParams.file = urlParams.get('file') || undefined
       }
 
-      if (urlParams.has('from_date') && effectiveParams.from_date === undefined) {
-        effectiveParams.from_date = urlParams.get('from_date') ?? null
+      if (urlParams.has('anchor_date') && effectiveParams.anchor_date === undefined) {
+        effectiveParams.anchor_date = urlParams.get('anchor_date') ?? null
       }
 
       if (urlParams.has('last_n_days') && effectiveParams.last_n_days === undefined) {
@@ -84,7 +85,7 @@ export const useReviewersStore = defineStore('reviewers', () => {
     perPage.value = effectiveParams.per_page ?? 10
     lastRepository.value = effectiveParams.repository
     lastFile.value = effectiveParams.file
-    lastFromDate.value = effectiveParams.from_date ?? null
+    lastAnchorDate.value = effectiveParams.anchor_date ?? null
     lastNDays.value = effectiveParams.last_n_days ?? null
     isLoading.value = true
     error.value = null
@@ -92,7 +93,7 @@ export const useReviewersStore = defineStore('reviewers', () => {
     const qs = new URLSearchParams()
     qs.set('repository', effectiveParams.repository)
     if (effectiveParams.file) qs.set('file', effectiveParams.file)
-    if (effectiveParams.from_date) qs.set('from_date', effectiveParams.from_date)
+    if (effectiveParams.anchor_date) qs.set('anchor_date', effectiveParams.anchor_date)
     if (effectiveParams.last_n_days != null) qs.set('last_n_days', String(effectiveParams.last_n_days))
     qs.set('pagination[page]', String(page.value))
     qs.set('pagination[per_page]', String(perPage.value))
@@ -123,7 +124,7 @@ export const useReviewersStore = defineStore('reviewers', () => {
     return fetchReviewers({
       repository: lastRepository.value,
       file: lastFile.value,
-      from_date: lastFromDate.value,
+      anchor_date: lastAnchorDate.value,
       last_n_days: lastNDays.value,
       page: p,
       per_page: perPage.value

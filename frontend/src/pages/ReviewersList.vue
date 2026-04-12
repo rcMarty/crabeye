@@ -27,7 +27,7 @@ export default defineComponent({
       status?: string
       tags?: string[]
       file?: string
-      from_date?: string | null
+      anchor_date?: string | null
       last_n_days?: number | null
       repository?: string
     }) {
@@ -36,7 +36,7 @@ export default defineComponent({
       await store.fetchReviewers({
         repository: payload.repository || 'rust-lang/rust',
         file: payload.file,
-        from_date: payload.from_date ?? null,
+        anchor_date: payload.anchor_date ?? null,
         last_n_days: payload.last_n_days ?? null,
         page: 1,
         per_page: perPage.value

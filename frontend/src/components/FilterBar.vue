@@ -12,7 +12,7 @@ const emit = defineEmits<{
       status?: string
       tags?: string[]
       file?: string
-      from_date?: string | null
+      anchor_date?: string | null
       last_n_days?: number | null
     }
   ): void
@@ -27,7 +27,7 @@ const filters = reactive({
   status: '', // e.g. 'open' | 'closed' | ''
   tags: [] as string[], // multi-select
   file: '',
-  from_date: '' as string, // iso date string or empty
+  anchor_date: '' as string, // iso date string or empty
   last_n_days: null as number | null
 })
 
@@ -45,7 +45,7 @@ onMounted(() => {
   if (typeof tags === 'string') filters.tags = tags ? tags.split(',') : []
   if (Array.isArray(tags)) filters.tags = tags as string[]
   if (typeof file === 'string') filters.file = file
-  if (typeof from_date === 'string') filters.from_date = toIsoDate(from_date) || ''
+  if (typeof from_date === 'string') filters.anchor_date = toIsoDate(from_date) || ''
   if (typeof last_n_days === 'string') {
     const n = parseInt(last_n_days, 10)
     filters.last_n_days = isNaN(n) ? null : n
@@ -72,7 +72,7 @@ function applyFilters() {
   if (filters.status) query.status = filters.status
   if (filters.tags && filters.tags.length) query.tags = filters.tags
   if (filters.file) query.file = filters.file
-  if (filters.from_date) query.from_date = filters.from_date
+  if (filters.anchor_date) query.anchor_date = filters.anchor_date
   if (filters.last_n_days != null) query.last_n_days = String(filters.last_n_days)
 
   router.replace({ query }).catch(() => {})
@@ -84,7 +84,7 @@ function applyFilters() {
 }
 
 function submitFilters() {
-  const fromIsoDate = toIsoDate(filters.from_date)
+  const fromIsoDate = toIsoDate(filters.anchor_date)
 
   // emit richer payload for backend fetch
   emit('filters-submitted', {
@@ -92,7 +92,7 @@ function submitFilters() {
     status: filters.status || undefined,
     tags: filters.tags.length ? [...filters.tags] : undefined,
     file: filters.file || undefined,
-    from_date: fromIsoDate || null,
+    anchor_date: fromIsoDate || null,
     last_n_days: filters.last_n_days ?? null
   })
   // also update URL and live changed event
@@ -103,7 +103,7 @@ function clearFilters() {
   filters.status = ''
   filters.tags = []
   filters.file = ''
-  filters.from_date = ''
+  filters.anchor_date = ''
   filters.last_n_days = null
   applyFilters()
 }
@@ -119,7 +119,7 @@ function clearFilters() {
         </b-col>
 
         <b-col class="d-flex gap-1" cols="4">
-          <b-form-input v-model="filters.from_date" aria-label="From date" type="date" />
+          <b-form-input v-model="filters.anchor_date" aria-label="Anchor date" type="date" />
           <b-form-input v-model.number="filters.last_n_days" min="0" placeholder="60" type="number" />
         </b-col>
 

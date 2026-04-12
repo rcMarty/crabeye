@@ -1,7 +1,10 @@
-// API service for Pull Request endpoints
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+// API service for all backend endpoints — matches the OpenAPI schema
+const API_BASE_URL = import.meta.env.VITE_BACKEND_API_BASE_URL || 'http://localhost:7878/api'
 
-// Base types
+/** Default repository constant */
+export const DEFAULT_REPOSITORY = 'rust-lang/rust'
+
+// ─── Base types ──────────────────────────────────────────────────────
 export interface Contributor {
   github_id: number
   github_name: string
@@ -18,6 +21,11 @@ export interface PaginatedResponse<T> {
   page: number
   per_page: number
   total_count: number
+}
+
+export interface DateCount {
+  date: string
+  count: number
 }
 
 // Pull Request Status Types
@@ -61,7 +69,7 @@ export interface PrEvent {
   labels_history?: IssueLabel[] | null
 }
 
-// Response Types
+// ─── Response Types ──────────────────────────────────────────────────
 export interface TopFilesResponse {
   repository: string
   pr_id: number
@@ -69,11 +77,24 @@ export interface TopFilesResponse {
   pr_creator: Contributor
 }
 
-// Request Parameter Interfaces
+export interface FileNode {
+  name: string
+  modifications: number
+  children: FileNode[]
+}
+
+/** Tagged union returned by /files-modified-by-team */
+export type FilesModifiedResponse =
+  | { type: 'list'; data: Record<string, number> }
+  | { type: 'tree'; data: FileNode }
+
+export type GroupingLevel = null | number | 'all' | 'none'
+
+// ─── Request Parameter Interfaces ────────────────────────────────────
 export interface ReviewersParams {
   repository: string
   file: string
-  from_date?: string | null
+  anchor_date?: string | null
   last_n_days?: number | null
   pagination?: Pagination | null
 }
@@ -82,13 +103,20 @@ export interface TopFilesParams {
   repository: string
   name: string
   top_n: number
-  duration?: number | null
+  last_n_days?: number | null
 }
 
 export interface PrsInStateParams {
   repository: string
   state: PullRequestStatusType
   timestamp?: string | null
+}
+
+export interface PrsInStateOverTimeParams {
+  repository: string
+  state: PullRequestStatusType
+  anchor_date?: string | null
+  last_n_days?: number | null
 }
 
 export interface PrHistoryParams {
@@ -108,159 +136,165 @@ export interface IssueEventsParams {
   timestamp: string
 }
 
-// Files Modified by Team Types
-export type GroupingLevel = null | number | 'all' | 'none'
-
-export interface FileNode {
-  name: string
-  modifications: number
-  children: FileNode[]
-}
-
-export type FilesModifiedResponse = Array<[string, number]> | FileNode
-
 export interface FilesModifiedByTeamParams {
   repository: string
   team_name: string
-  from_timestamp?: string | null
+  anchor_date?: string | null
   last_n_days?: number | null
   group_level?: GroupingLevel
 }
 
+// ─── API Functions ───────────────────────────────────────────────────
+
+function addPagination(sp: URLSearchParams, pagination?: Pagination | null) {
+  if (pagination) {
+    sp.set('pagination[page]', pagination.page.toString())
+    sp.set('pagination[per_page]', pagination.per_page.toString())
+  }
+}
+
 /**
- * Get users who made reviews on a specific file within a date range
+ * GET /api/pr/reviewers
+ * Get users who made reviews on a specific file/path within a date range
  */
 export async function getReviewers(params: ReviewersParams): Promise<PaginatedResponse<Contributor>> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('file', params.file)
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('file', params.file)
+  if (params.anchor_date) sp.set('anchor_date', params.anchor_date)
+  if (params.last_n_days != null) sp.set('last_n_days', params.last_n_days.toString())
+  addPagination(sp, params.pagination)
 
-  if (params.from_date) {
-    searchParams.set('from_date', params.from_date)
-  }
-  if (params.last_n_days != null) {
-    searchParams.set('last_n_days', params.last_n_days.toString())
-  }
-  if (params.pagination) {
-    searchParams.set('pagination[page]', params.pagination.page.toString())
-    searchParams.set('pagination[per_page]', params.pagination.per_page.toString())
-  }
-
-  const response = await fetch(`${API_BASE_URL}/pr/reviewers?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch reviewers: ${response.statusText}`)
-  }
+  const response = await fetch(`${API_BASE_URL}/pr/reviewers?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch reviewers: ${response.statusText}`)
   return response.json()
 }
 
 /**
- * Get top N files modified by a user within a duration
+ * GET /api/pr/top-n-files
+ * Get the N most recent file touches by a user within a time window
  */
 export async function getTopFiles(params: TopFilesParams): Promise<TopFilesResponse[]> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('name', params.name)
-  searchParams.set('top_n', params.top_n.toString())
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('name', params.name)
+  sp.set('top_n', params.top_n.toString())
+  if (params.last_n_days != null) sp.set('last_n_days', params.last_n_days.toString())
 
-  if (params.duration != null) {
-    searchParams.set('duration', params.duration.toString())
-  }
-
-  const response = await fetch(`${API_BASE_URL}/pr/top-n-files?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch top files: ${response.statusText}`)
-  }
-
+  const response = await fetch(`${API_BASE_URL}/pr/top-n-files?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch top files: ${response.statusText}`)
   return response.json()
 }
 
 /**
+ * GET /api/pr/prs-in-state
  * Get count of PRs in a specific state at a given timestamp
  */
 export async function getPrsInState(params: PrsInStateParams): Promise<number> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('state', params.state)
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('state', params.state)
+  if (params.timestamp) sp.set('timestamp', params.timestamp)
 
-  if (params.timestamp) {
-    searchParams.set('timestamp', params.timestamp)
-  }
-
-  const response = await fetch(`${API_BASE_URL}/pr/prs-in-state?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch PRs in state: ${response.statusText}`)
-  }
+  const response = await fetch(`${API_BASE_URL}/pr/prs-in-state?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch PRs in state: ${response.statusText}`)
   return response.json()
 }
 
 /**
- * Get the state and history of a PR at a specific timestamp
+ * GET /api/pr/prs-in-state-over-time
+ * Get count of PRs in a specific state for each day in a lookback window (time-series)
+ */
+export async function getPrsInStateOverTime(params: PrsInStateOverTimeParams): Promise<DateCount[]> {
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('state', params.state)
+  if (params.anchor_date) sp.set('anchor_date', params.anchor_date)
+  if (params.last_n_days != null) sp.set('last_n_days', params.last_n_days.toString())
+
+  const response = await fetch(`${API_BASE_URL}/pr/prs-in-state-over-time?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch PR state time-series: ${response.statusText}`)
+  return response.json()
+}
+
+/**
+ * GET /api/pr/pr-history/{issue}
+ * Get the states and labels of a PR at a specific timestamp (issue is a PATH param)
  */
 export async function getPrHistory(params: PrHistoryParams): Promise<PrEvent> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('issue', params.issue.toString())
-  searchParams.set('timestamp', params.timestamp)
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('timestamp', params.timestamp)
 
-  const response = await fetch(`${API_BASE_URL}/pr/pr-history?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch PR history: ${response.statusText}`)
-  }
-
+  const response = await fetch(`${API_BASE_URL}/pr/pr-history/${params.issue}?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch PR history: ${response.statusText}`)
   return response.json()
 }
 
 /**
+ * GET /api/pr/waiting-for-review
  * Get PRs that are currently waiting for review
  */
 export async function getWaitingForReview(params: WaitingForReviewParams): Promise<PaginatedResponse<PrEvent>> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  addPagination(sp, params.pagination)
 
-  if (params.pagination) {
-    searchParams.set('pagination[page]', params.pagination.page.toString())
-    searchParams.set('pagination[per_page]', params.pagination.per_page.toString())
-  }
-
-  const response = await fetch(`${API_BASE_URL}/pr/waiting-for-review?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch waiting PRs: ${response.statusText}`)
-  }
+  const response = await fetch(`${API_BASE_URL}/pr/waiting-for-review?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch waiting PRs: ${response.statusText}`)
   return response.json()
 }
 
 /**
+ * GET /api/pr/files-modified-by-team
  * Get files modified by a team within a time window
  */
 export async function getFilesModifiedByTeam(params: FilesModifiedByTeamParams): Promise<FilesModifiedResponse> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('team_name', params.team_name)
-
-  if (params.from_timestamp) {
-    searchParams.set('from_timestamp', params.from_timestamp)
-  }
-  if (params.last_n_days != null) {
-    searchParams.set('last_n_days', params.last_n_days.toString())
-  }
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('team_name', params.team_name)
+  if (params.anchor_date) sp.set('anchor_date', params.anchor_date)
+  if (params.last_n_days != null) sp.set('last_n_days', params.last_n_days.toString())
   if (params.group_level !== undefined && params.group_level !== null) {
     if (params.group_level === 'none' || params.group_level === 'all') {
-      searchParams.set('group_level', params.group_level)
+      sp.set('group_level', params.group_level)
     } else {
-      searchParams.set('group_level', params.group_level.toString())
+      sp.set('group_level', params.group_level.toString())
     }
   }
 
-  const response = await fetch(`${API_BASE_URL}/pr/files-modified-by-team?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch files modified by team: ${response.statusText}`)
-  }
+  const response = await fetch(`${API_BASE_URL}/pr/files-modified-by-team?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch files modified by team: ${response.statusText}`)
   return response.json()
 }
 
 /**
- * Helper function to extract status type from PullRequestStatus object
+ * GET /api/issue/issue-events/{issue}
+ * Get the state of an Issue at a specific timestamp (issue is a PATH param)
  */
+export async function getIssueEvents(params: IssueEventsParams): Promise<IssueEvent[]> {
+  const sp = new URLSearchParams()
+  sp.set('repository', params.repository)
+  sp.set('timestamp', params.timestamp)
+
+  const response = await fetch(`${API_BASE_URL}/issue/issue-events/${params.issue}?${sp}`)
+  if (!response.ok) throw new Error(`Failed to fetch issue events: ${response.statusText}`)
+  return response.json()
+}
+
+/**
+ * GET /api/teams
+ * List all known teams
+ */
+export async function getTeams(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/teams`)
+  if (!response.ok) throw new Error(`Failed to fetch teams: ${response.statusText}`)
+  return response.json()
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+/** Extract status type string from PullRequestStatus tagged union */
 export function getStatusType(status: PullRequestStatus): PullRequestStatusType {
   if ('WaitingForReview' in status) return 'WaitingForReview'
   if ('WaitingForBors' in status) return 'WaitingForBors'
@@ -268,12 +302,10 @@ export function getStatusType(status: PullRequestStatus): PullRequestStatusType 
   if ('Open' in status) return 'Open'
   if ('Closed' in status) return 'Closed'
   if ('Merged' in status) return 'Merged'
-  return 'Open' // fallback
+  return 'Open'
 }
 
-/**
- * Helper function to get time from PullRequestStatus object
- */
+/** Extract timestamp from PullRequestStatus tagged union */
 export function getStatusTime(status: PullRequestStatus): string {
   if ('WaitingForReview' in status) return status.WaitingForReview.time
   if ('WaitingForBors' in status) return status.WaitingForBors.time
@@ -282,21 +314,4 @@ export function getStatusTime(status: PullRequestStatus): string {
   if ('Closed' in status) return status.Closed.time
   if ('Merged' in status) return status.Merged.time
   return ''
-}
-
-/**
- * Get the state history of an issue at a specific timestamp
- * GET /api/issue/issue-events
- */
-export async function getIssueEvents(params: IssueEventsParams): Promise<PullRequestStatus[]> {
-  const searchParams = new URLSearchParams()
-  searchParams.set('repository', params.repository)
-  searchParams.set('issue', params.issue.toString())
-  searchParams.set('timestamp', params.timestamp)
-
-  const response = await fetch(`${API_BASE_URL}/issue/issue-events?${searchParams.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch issue events: ${response.statusText}`)
-  }
-  return response.json()
 }

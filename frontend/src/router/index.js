@@ -33,6 +33,11 @@ export default createRouter({
       component: () => import('../pages/pr/PrStatusPage.vue')
     },
     {
+      path: '/pr/status-over-time',
+      name: 'PrStateOverTime',
+      component: () => import('../pages/pr/PrStateOverTimePage.vue')
+    },
+    {
       path: '/pr/waiting',
       name: 'PrWaiting',
       component: () => import('../pages/pr/PrWaitingPage.vue')

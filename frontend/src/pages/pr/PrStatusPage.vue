@@ -3,13 +3,13 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { BCard, BButton, BFormInput, BSpinner, BAlert } from 'bootstrap-vue-next'
 import PieChartComponent from '@/components/Charts/PieChartComponent.vue'
-import { getPrsInState, PullRequestStatusType } from '@/services/prApi'
+import { getPrsInState, PullRequestStatusType, DEFAULT_REPOSITORY } from '@/services/prApi'
 import { formatDateEU, toIsoDate } from '@/utils/dateFormat'
 
 const route = useRoute()
 const router = useRouter()
 
-const repository = ref<string>('rust-lang/rust')
+const repository = ref<string>(DEFAULT_REPOSITORY)
 const selectedDate = ref<string>('')
 
 const prsStateData = ref<Record<PullRequestStatusType, number>>({

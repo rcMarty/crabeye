@@ -8,18 +8,19 @@ import { JsonViewer } from 'vue3-json-viewer'
 import 'vue3-json-viewer/dist/vue3-json-viewer.css'
 import {
   getFilesModifiedByTeam,
+  getTeams,
   GroupingLevel,
   FilesModifiedResponse,
-  FileNode
+  FileNode,
+  DEFAULT_REPOSITORY
 } from '@/services/prApi'
-import { toIsoDate } from '@/utils/dateFormat'
 
 const route = useRoute()
 const router = useRouter()
 
-const repository = ref<string>('rust-lang/rust')
+const repository = ref<string>(DEFAULT_REPOSITORY)
 const teamName = ref<string>('')
-const teamFromTimestamp = ref<string>('')
+const teamAnchorDate = ref<string>('')
 const teamLastNDays = ref<number>(30)
 const teamGroupLevel = ref<GroupingLevel>(null)
 const teamFilesData = ref<FilesModifiedResponse | null>(null)
@@ -28,6 +29,7 @@ const error = ref<string | null>(null)
 const showJsonView = ref(false)
 const jsonExpandDepth = ref<number>(0)
 const jsonViewerKey = ref<number>(0)
+const teamOptions = ref<string[]>([])
 
 const groupLevelOptions = [
   { value: null, text: 'Auto (null)' },
@@ -38,17 +40,10 @@ const groupLevelOptions = [
   { value: 'all', text: 'All levels (full tree)' }
 ]
 
-const isFileNode = (value: unknown): value is FileNode =>
-  value !== null &&
-  typeof value === 'object' &&
-  'name' in value &&
-  'modifications' in value &&
-  'children' in value
-
-onMounted(() => {
+onMounted(async () => {
   if (route.query.repository) repository.value = String(route.query.repository)
   if (route.query.team) teamName.value = String(route.query.team)
-  if (route.query.from) teamFromTimestamp.value = toIsoDate(String(route.query.from)) || ''
+  if (route.query.from) teamAnchorDate.value = String(route.query.from)
   if (route.query.days) teamLastNDays.value = Number(route.query.days)
   if (route.query.group_level !== undefined) {
     const gl = route.query.group_level
@@ -57,15 +52,18 @@ onMounted(() => {
     else teamGroupLevel.value = Number(gl) as GroupingLevel
   }
 
+  // Load teams list for the selector
+  try { teamOptions.value = await getTeams() } catch { /* ignore */ }
+
   if (teamName.value) fetchTeamFiles()
 })
 
-watch([repository, teamName, teamFromTimestamp, teamLastNDays, teamGroupLevel], () => {
+watch([repository, teamName, teamAnchorDate, teamLastNDays, teamGroupLevel], () => {
   router.replace({
     query: {
       ...(repository.value ? { repository: repository.value } : {}),
       ...(teamName.value ? { team: teamName.value } : {}),
-      ...(teamFromTimestamp.value ? { from: teamFromTimestamp.value } : {}),
+      ...(teamAnchorDate.value ? { from: teamAnchorDate.value } : {}),
       days: teamLastNDays.value,
       group_level: teamGroupLevel.value === null ? 'null' : String(teamGroupLevel.value)
     }
@@ -74,15 +72,12 @@ watch([repository, teamName, teamFromTimestamp, teamLastNDays, teamGroupLevel], 
 
 const isTeamFilesFlat = computed(() => {
   if (!teamFilesData.value) return false
-  return !isFileNode(teamFilesData.value)
+  return teamFilesData.value.type === 'list'
 })
 
 const teamFilesEntries = computed(() => {
-  if (!isTeamFilesFlat.value || !teamFilesData.value) return []
-  const data = teamFilesData.value
-  if (isFileNode(data)) return []
-  if (Array.isArray(data)) return data as Array<[string, number]>
-  return Object.entries(data as Record<string, number>)
+  if (!teamFilesData.value || teamFilesData.value.type !== 'list') return []
+  return Object.entries(teamFilesData.value.data)
 })
 
 const teamFilesChartData = computed(() => {
@@ -112,8 +107,8 @@ const chartOptions = computed(() => ({
 }))
 
 const teamFilesTreeData = computed(() => {
-  if (isTeamFilesFlat.value || !teamFilesData.value) return null
-  return teamFilesData.value as FileNode
+  if (!teamFilesData.value || teamFilesData.value.type !== 'tree') return null
+  return teamFilesData.value.data
 })
 
 const getJsonFieldTypeRank = (value: unknown): number => {
@@ -148,11 +143,6 @@ function handleJsonKeyClick(keyName: string) {
 
 async function fetchTeamFiles() {
   if (!teamName.value) { error.value = 'Please provide team name'; return }
-  const fromIsoDate = toIsoDate(teamFromTimestamp.value)
-  if (teamFromTimestamp.value && !fromIsoDate) {
-    error.value = 'Invalid from date format. Use dd/mm/yyyy'
-    return
-  }
 
   loading.value = true
   error.value = null
@@ -162,7 +152,7 @@ async function fetchTeamFiles() {
     teamFilesData.value = await getFilesModifiedByTeam({
       repository: repository.value,
       team_name: teamName.value,
-      from_timestamp: fromIsoDate || undefined,
+      anchor_date: teamAnchorDate.value || undefined,
       last_n_days: teamLastNDays.value || undefined,
       group_level: teamGroupLevel.value
     })
@@ -187,11 +177,15 @@ async function fetchTeamFiles() {
         </div>
         <div class="col-md-3">
           <label class="form-label">Team Name</label>
-          <b-form-input v-model="teamName" type="text" placeholder="Enter team name" @keyup.enter="fetchTeamFiles" />
+          <b-form-select v-if="teamOptions.length > 0" v-model="teamName">
+            <option value="">Select team...</option>
+            <option v-for="t in teamOptions" :key="t" :value="t">{{ t }}</option>
+          </b-form-select>
+          <b-form-input v-else v-model="teamName" type="text" placeholder="Enter team name" @keyup.enter="fetchTeamFiles" />
         </div>
         <div class="col-md-2">
-          <label class="form-label">From Date (optional)</label>
-          <b-form-input v-model="teamFromTimestamp" type="date" />
+          <label class="form-label">Anchor Date (optional)</label>
+          <b-form-input v-model="teamAnchorDate" type="date" />
         </div>
         <div class="col-md-2">
           <label class="form-label">Last N Days (optional)</label>
@@ -250,10 +244,10 @@ async function fetchTeamFiles() {
         </div>
         <div v-else>
           <treemap-chart-component :data="(teamFilesTreeData || {})" :height="500" />
-          <div class="mt-3 tree-summary">
-            <p><strong>Root:</strong> {{ (teamFilesData as FileNode).name }}</p>
-            <p><strong>Total Modifications:</strong> {{ (teamFilesData as FileNode).modifications }}</p>
-            <p class="mb-0"><strong>Direct Children:</strong> {{ (teamFilesData as FileNode).children?.length || 0 }}</p>
+          <div v-if="teamFilesTreeData" class="mt-3 tree-summary">
+            <p><strong>Root:</strong> {{ teamFilesTreeData.name }}</p>
+            <p><strong>Total Modifications:</strong> {{ teamFilesTreeData.modifications }}</p>
+            <p class="mb-0"><strong>Direct Children:</strong> {{ teamFilesTreeData.children?.length || 0 }}</p>
           </div>
         </div>
       </template>
