@@ -25,7 +25,7 @@ where
 {
     let backoff = backoff::ExponentialBackoffBuilder::new()
         .with_initial_interval(Duration::from_secs(30))
-        .with_max_interval(Duration::from_secs(60 * 10))
+        .with_max_interval(Duration::from_secs(60 * 15))
         .with_max_elapsed_time(Some(Duration::from_secs(60 * 45)))
         .build();
 

@@ -121,10 +121,10 @@ WHERE repository = $1 AND issue = $2
         Ok(record.timestamp)
     }
 
-    pub async fn get_oldest_pr_timestamp(&self, repository: &str) -> Result<Option<NaiveDate>> {
+    pub async fn get_oldest_pr_timestamp(&self, repository: &str) -> Result<Option<NaiveDateTime>> {
         let record = sqlx::query!(
             r#"
-SELECT MIN(timestamp) as timestamp
+SELECT MIN(created_at) as timestamp
 FROM issues
 WHERE repository = $1
 "#,
@@ -132,6 +132,6 @@ WHERE repository = $1
         )
             .fetch_one(&self.pool)
             .await?;
-        Ok(record.timestamp.map(|ts| ts.date()))
+        Ok(record.timestamp)
     }
 }

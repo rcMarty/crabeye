@@ -159,7 +159,7 @@ ORDER BY timestamp DESC
 
         let mut pr = match sqlx::query_as::<_, PrEvent>(
             r#"
-SELECT repository as repository, issue as pr, current_state as state, timestamp as timestamp, merge_sha as merge_sha, contributor_id as author_id
+SELECT repository as repository, issue as pr, current_state as state, edited_at as edited_at, created_at as created_at, merge_sha as merge_sha, contributor_id as author_id
 FROM issues
 WHERE repository = $1 and issue = $2 and is_pr = true
 "#,
@@ -198,8 +198,8 @@ WHERE repository = $1 and issue = $2 and is_pr = true
     ///   was `"closed"` (closed but not merged, and not later reopened).
     ///
     /// - `Open`: counts PRs where no `"closed"/"merged"` event exists up to `T`, or whose most
-    ///   recent such event was `"reopened"`.  The earliest recorded event (or `issues.timestamp`
-    ///   for PRs with no events) is used as a creation-time proxy to exclude PRs not yet created.
+    ///   recent such event was `"reopened"`.  The `issues.created_at` column is used to exclude PRs
+    ///   not yet created at time `T`.
     ///
     /// # Errors
     /// Returns an error on SQL/DB failure.
@@ -311,26 +311,16 @@ WITH latest_state AS (
       AND event   IN ('closed', 'merged', 'reopened')
       AND timestamp <= $2
     ORDER BY issue, timestamp DESC
-),
-first_event AS (
-    -- Approximate PR creation time as the earliest recorded event
-    SELECT issue, MIN(timestamp) as first_ts
-    FROM issue_event_history
-    WHERE repository = $1 AND is_pr = true
-    GROUP BY issue
 )
 SELECT COUNT(i.issue)
 FROM issues i
 LEFT JOIN latest_state ls ON ls.issue = i.issue
-LEFT JOIN first_event  fe ON fe.issue = i.issue
 WHERE i.repository = $1
   AND i.is_pr = true
   -- PR must be open at T
   AND (ls.issue IS NULL OR ls.event = 'reopened')
-  -- PR must have existed before T:
-  -- use earliest known event if available, fall back to issues.timestamp
-  -- (for currently-open PRs issues.timestamp ~ created_at)
-  AND COALESCE(fe.first_ts, i.timestamp) <= $2
+  -- PR must have existed before T
+  AND i.created_at <= $2
                     "#,
                 )
                     .bind(repository)
@@ -380,7 +370,7 @@ WHERE i.repository = $1
 WITH
 -- Unified timeline of PR open/close transitions
 all_transitions AS (
-    SELECT issue, timestamp, 'created' AS event_type
+    SELECT issue, created_at AS timestamp, 'created' AS event_type
     FROM issues
     WHERE repository = $1 AND is_pr = true
     UNION ALL
@@ -545,7 +535,7 @@ ORDER BY ds.day
                     r#"
 WITH
 all_transitions AS (
-    SELECT issue, timestamp, 'created' AS event_type
+    SELECT issue, created_at AS timestamp, 'created' AS event_type
     FROM issues
     WHERE repository = $1 AND is_pr = true
     UNION ALL
@@ -775,7 +765,8 @@ SELECT
     c.repository AS repository,
     l.issue     AS pr,
     l.label     AS state,
-    l.timestamp AS timestamp,
+    l.timestamp AS edited_at,
+    c.created_at AS created_at,
     c.merge_sha AS merge_sha,
     c.contributor_id AS author_id
 FROM current_waiting_labels l

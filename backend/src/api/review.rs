@@ -183,7 +183,7 @@ async fn prs_in_state(
     Query(params): Query<PrCountParams>,
 ) -> impl IntoApiResponse {
     let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
-    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None);
+    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None).map(|dt| dt.date());
 
     match app
         .db
@@ -214,7 +214,7 @@ async fn prs_in_state_over_time(
     let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
     let days = params.last_n_days.unwrap_or(30);
 
-    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None);
+    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None).map(|dt| dt.date());
 
     match app
         .db

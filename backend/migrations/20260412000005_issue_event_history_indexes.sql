@@ -1,4 +1,12 @@
--- Optimized indexes for analytical SELECT queries
+-- HISTORY: "Show timeline for a specific ISSUE"
+CREATE INDEX idx_issues_history_lookup
+    ON issue_event_history (repository, issue, timestamp DESC)
+    WHERE is_pr = false;
+
+-- HISTORY: "Show timeline for a specific PR"
+CREATE INDEX idx_prs_history_lookup
+    ON issue_event_history (repository, issue, timestamp DESC)
+    WHERE is_pr = true;
 
 -- PR state-change events (closed/merged/reopened)
 -- Supports DISTINCT ON (issue) ORDER BY issue, timestamp DESC
@@ -18,16 +26,3 @@ CREATE INDEX idx_pr_event_hist_merged
 CREATE INDEX idx_event_hist_repo_ts
     ON issue_event_history (repository, timestamp DESC);
 
--- PR label state queries (S-waiting-on-review, etc.)
--- Supports DISTINCT ON (issue), LEAD window, label IN filters
--- INCLUDE (action) enables Index-Only Scans.
-CREATE INDEX idx_pr_labels_repo_label_issue_ts
-    ON issue_labels_history (repository, label, issue, timestamp DESC)
-    INCLUDE (action)
-    WHERE is_pr = true;
-
--- Contributor-based file activity queries
--- INCLUDE (file_path, issue) enables Index-Only Scans.
-CREATE INDEX idx_file_activity_repo_contrib_ts
-    ON file_activity (repository, contributor_id, timestamp DESC)
-    INCLUDE (file_path, issue);

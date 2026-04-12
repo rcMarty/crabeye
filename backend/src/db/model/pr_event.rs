@@ -13,6 +13,7 @@ pub struct PrEvent {
     pub repository: String,
     pub pr_number: i64,
     pub author_id: i64,
+    pub created_at: DateTime<Utc>,
     pub state: PullRequestStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events_history: Option<Vec<IssueEvent>>,
@@ -78,18 +79,18 @@ pub enum PullRequestStatusRequest {
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let state: String = row.try_get("state")?;
-        let timestamp: DateTime<Utc> =
-            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
+        let edited_at: DateTime<Utc> =
+            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("edited_at")?, Utc);
         let merge_sha: Option<String> = row.try_get("merge_sha")?;
 
         match state.as_str() {
-            "open" => Ok(PullRequestStatus::Open { time: timestamp }),
-            "closed" => Ok(PullRequestStatus::Closed { time: timestamp }),
+            "open" => Ok(PullRequestStatus::Open { time: edited_at }),
+            "closed" => Ok(PullRequestStatus::Closed { time: edited_at }),
             "merged" => {
                 if let Some(merge_sha) = merge_sha {
                     Ok(PullRequestStatus::Merged {
                         merge_sha,
-                        time: timestamp,
+                        time: edited_at,
                     })
                 } else {
                     Err(sqlx::Error::Decode(
@@ -97,9 +98,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PullRequestStatus {
                     ))
                 }
             }
-            "S-waiting-on-review" => Ok(PullRequestStatus::WaitingForReview { time: timestamp }),
-            "S-waiting-on-bors" => Ok(PullRequestStatus::WaitingForBors { time: timestamp }),
-            "S-waiting-on-author" => Ok(PullRequestStatus::WaitingForAuthor { time: timestamp }),
+            "S-waiting-on-review" => Ok(PullRequestStatus::WaitingForReview { time: edited_at }),
+            "S-waiting-on-bors" => Ok(PullRequestStatus::WaitingForBors { time: edited_at }),
+            "S-waiting-on-author" => Ok(PullRequestStatus::WaitingForAuthor { time: edited_at }),
             _ => Err(sqlx::Error::Decode("Invalid state".into())),
         }
     }
@@ -130,7 +131,7 @@ pub struct FileActivity {
 }
 
 impl PrEvent {
-    pub fn get_timestamp(&self) -> DateTime<Utc> {
+    pub fn get_edited_at(&self) -> DateTime<Utc> {
         match &self.state {
             PullRequestStatus::Open { time } => *time,
             PullRequestStatus::Closed { time } => *time,
@@ -140,6 +141,10 @@ impl PrEvent {
             PullRequestStatus::WaitingForBors { time } => *time,
             PullRequestStatus::WaitingForAuthor { time } => *time,
         }
+    }
+
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        self.created_at
     }
 
     pub fn get_merge_sha(&self) -> Option<String> {
@@ -154,18 +159,11 @@ impl Display for PrEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PR #{}: {:?} at {}",
+            "PR #{}: {:?} created at {} edited at {}",
             self.pr_number,
             self.state,
-            match &self.state {
-                PullRequestStatus::Open { time } => time,
-                PullRequestStatus::Closed { time } => time,
-                PullRequestStatus::Merged { merge_sha, time } => time,
-
-                PullRequestStatus::WaitingForReview { time } => time,
-                PullRequestStatus::WaitingForBors { time } => time,
-                PullRequestStatus::WaitingForAuthor { time } => time,
-            }
+            self.created_at,
+            self.get_edited_at()
         )
     }
 }
@@ -176,21 +174,25 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
         let repository: String = row.try_get("repository")?;
         let pr_number: i64 = row.try_get("pr")?;
         let state: String = row.try_get("state")?;
-        let timestamp: DateTime<Utc> =
-            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("timestamp")?, Utc);
+        let edited_at: DateTime<Utc> =
+            DateTime::<Utc>::from_naive_utc_and_offset(row.try_get("edited_at")?, Utc);
+        let created_at: DateTime<Utc> = row
+            .try_get::<NaiveDateTime, _>("created_at")
+            .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+            .unwrap_or(edited_at);
         let merge_sha: Option<String> = row.try_get("merge_sha")?;
         let author_id: i64 = row.try_get("author_id")?;
 
         let status = match state.as_str() {
-            "open" => PullRequestStatus::Open { time: timestamp },
-            "closed" => PullRequestStatus::Closed { time: timestamp },
+            "open" => PullRequestStatus::Open { time: edited_at },
+            "closed" => PullRequestStatus::Closed { time: edited_at },
             "merged" => PullRequestStatus::Merged {
                 merge_sha: merge_sha.unwrap_or_default(),
-                time: timestamp,
+                time: edited_at,
             },
-            "S-waiting-on-review" => PullRequestStatus::WaitingForReview { time: timestamp },
-            "S-waiting-on-bors" => PullRequestStatus::WaitingForBors { time: timestamp },
-            "S-waiting-on-author" => PullRequestStatus::WaitingForAuthor { time: timestamp },
+            "S-waiting-on-review" => PullRequestStatus::WaitingForReview { time: edited_at },
+            "S-waiting-on-bors" => PullRequestStatus::WaitingForBors { time: edited_at },
+            "S-waiting-on-author" => PullRequestStatus::WaitingForAuthor { time: edited_at },
 
             _ => return Err(sqlx::Error::Decode("Invalid state".into())),
         };
@@ -199,6 +201,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for PrEvent {
             repository,
             pr_number,
             author_id,
+            created_at,
             state: status,
             events_history: None,
             labels_history: None,

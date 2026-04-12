@@ -286,7 +286,7 @@ impl SyncHandler {
                             pr: pr.pr_number,
                             file_path: file.clone(),
                             user_id: pr.author_id,
-                            timestamp: pr.get_timestamp(),
+                            timestamp: pr.get_edited_at(),
                         })
                         .collect();
                     if let Err(res) = self.database.insert_file_activities(&file_activities).await {

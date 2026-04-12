@@ -1,16 +1,15 @@
+-- ============================================================
+-- All tables – final schema
+-- ============================================================
+
 CREATE TABLE teams
 (
     team       TEXT PRIMARY KEY,
     subteam_of TEXT,
-    kind       TEXT
-);
+    kind       TEXT,
 
-CREATE TABLE contributors_teams
-(
-    team           TEXT   NOT NULL REFERENCES teams (team),
-    contributor_id BIGINT NOT NULL,
-
-    PRIMARY KEY (team, contributor_id)
+    CONSTRAINT fk_teams_subteam     FOREIGN KEY (subteam_of) REFERENCES teams (team),
+    CONSTRAINT check_no_self_parent CHECK (team != subteam_of)
 );
 
 CREATE TABLE contributors
@@ -20,6 +19,14 @@ CREATE TABLE contributors
     name        TEXT
 );
 
+CREATE TABLE contributors_teams
+(
+    team           TEXT   NOT NULL REFERENCES teams (team),
+    contributor_id BIGINT NOT NULL,
+
+    PRIMARY KEY (team, contributor_id),
+    CONSTRAINT fk_contributors_teams_contributor FOREIGN KEY (contributor_id) REFERENCES contributors (github_id)
+);
 
 CREATE TABLE issues
 (
@@ -29,7 +36,8 @@ CREATE TABLE issues
 
     contributor_id BIGINT    NOT NULL REFERENCES contributors (github_id),
     current_state  TEXT      NOT NULL,
-    timestamp      TIMESTAMP NOT NULL,
+    edited_at      TIMESTAMP NOT NULL,
+    created_at     TIMESTAMP NOT NULL,
     merge_sha      TEXT,
 
     PRIMARY KEY (repository, issue)
@@ -46,7 +54,8 @@ CREATE TABLE issue_event_history
     event      TEXT      NOT NULL,
     timestamp  TIMESTAMP NOT NULL,
 
-    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue),
+    CONSTRAINT uq_issue_event_history_conflict UNIQUE (repository, issue, timestamp, event)
 );
 
 CREATE TABLE issue_labels_history
@@ -59,12 +68,11 @@ CREATE TABLE issue_labels_history
 
     label      TEXT      NOT NULL,
     timestamp  TIMESTAMP NOT NULL,
-    action     TEXT      NOT NULL CHECK ( action IN ('ADDED', 'REMOVED') ),
+    action     TEXT      NOT NULL CHECK (action IN ('ADDED', 'REMOVED')),
 
-    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue),
+    CONSTRAINT uq_issue_labels_history_conflict UNIQUE (repository, issue, timestamp, label)
 );
-
-
 
 CREATE TABLE file_activity
 (
@@ -77,5 +85,7 @@ CREATE TABLE file_activity
     activity_type  TEXT,
     timestamp      TIMESTAMP NOT NULL,
 
-    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue)
+    FOREIGN KEY (repository, issue) REFERENCES issues (repository, issue),
+    CONSTRAINT uq_file_activity_conflict UNIQUE (repository, issue, timestamp, file_path)
 );
+

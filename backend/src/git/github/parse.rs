@@ -187,7 +187,8 @@ impl GitHubApi {
                 let parsed = PrEvent {
                     repository: self.repository_identifier.clone(),
                     pr_number: pr.number as i64,
-                    author_id: pr.user.expect("No author in PrEvent").id.0 as i64,
+                    author_id: pr.user.as_ref().expect("No author in PrEvent").id.0 as i64,
+                    created_at: pr.created_at.expect("Missing created time for PR"),
                     state: match (pr.state, pr.merged_at, pr.labels) {
                         (Some(IssueState::Open), _, Some(labels)) => {
                             PullRequestStatus::find_status(
@@ -292,6 +293,7 @@ impl GitHubApi {
                     repository: self.repository_identifier.clone(),
                     issue_number: issue.number as i64,
                     author_id: issue.user.id.0 as i64,
+                    created_at: issue.created_at,
                     status: last_state,
                     events_history: states,
                     labels_history: labels,

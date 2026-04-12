@@ -158,8 +158,8 @@ where not exists (select 1 from contributors where github_id = $1);
     /// Upserts a single [`PrEvent`] into the `issues` table and, if history is present,
     /// also inserts its event and label history rows in the same transaction.
     ///
-    /// The `issues` row is only updated when the incoming `timestamp` is newer than what
-    /// is already stored (optimistic upsert). If either `events_history` or `labels_history`
+    /// The `issues` row is only updated when the incoming `edited_at` is newer than what
+    /// is already stored (optimistic upsert). The `created_at` is set on first insert only. If either `events_history` or `labels_history`
     /// is `None`, history insertion is skipped and a warning is logged.
     ///
     /// # Errors
@@ -169,19 +169,20 @@ where not exists (select 1 from contributors where github_id = $1);
 
         sqlx::query!(
             r#"
-INSERT INTO issues (repository, issue, is_pr, current_state, timestamp, merge_sha, contributor_id)
-VALUES ($1, $2, true, $3, $4, $5, $6)
+INSERT INTO issues (repository, issue, is_pr, current_state, edited_at, created_at, merge_sha, contributor_id)
+VALUES ($1, $2, true, $3, $4, $5, $6, $7)
 ON CONFLICT(repository, issue) DO UPDATE SET
     current_state = excluded.current_state,
-    timestamp = excluded.timestamp,
+    edited_at = excluded.edited_at,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
-WHERE issues.timestamp < EXCLUDED.timestamp
+WHERE issues.edited_at < EXCLUDED.edited_at
 "#,
             event.repository,
             event.pr_number,
             event.state.as_str(),
-            event.get_timestamp().naive_utc(),
+            event.get_edited_at().naive_utc(),
+            event.get_created_at().naive_utc(),
             event.get_merge_sha(),
             event.author_id
         )
@@ -265,7 +266,7 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
 
     /// Bulk-upserts a slice of [`PrEvent`]s into the `issues` table using a single UNNEST query.
     ///
-    /// Each row is only updated when the incoming `timestamp` is newer than the stored one.
+    /// Each row is only updated when the incoming `edited_at` is newer than the stored one.
     /// After the bulk upsert, if **all** events carry both `events_history` and `labels_history`,
     /// their history rows are inserted via [`insert_issues_history`]. Otherwise history insertion
     /// is silently skipped for the whole batch.
@@ -288,7 +289,8 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
         let mut repos: Vec<&str> = Vec::with_capacity(count);
         let mut prs: Vec<i64> = Vec::with_capacity(count);
         let mut states: Vec<&str> = Vec::with_capacity(count);
-        let mut timestamps: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
+        let mut edited_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
+        let mut created_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
         let mut merge_shas: Vec<Option<String>> = Vec::with_capacity(count);
         let mut author_ids: Vec<i64> = Vec::with_capacity(count);
 
@@ -296,34 +298,37 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
             repos.push(event.repository.as_str());
             prs.push(event.pr_number);
             states.push(event.state.as_str());
-            timestamps.push(event.get_timestamp().naive_utc());
+            edited_ats.push(event.get_edited_at().naive_utc());
+            created_ats.push(event.get_created_at().naive_utc());
             merge_shas.push(event.get_merge_sha());
             author_ids.push(event.author_id);
         }
 
         sqlx::query!(
             r#"
-INSERT INTO issues (repository, issue, is_pr,current_state, timestamp, merge_sha, contributor_id)
+INSERT INTO issues (repository, issue, is_pr, current_state, edited_at, created_at, merge_sha, contributor_id)
 SELECT repository as repository,
        issue as issue,
        true as is_pr,
        current_state as current_state,
-       timestamp as timestamp,
+       edited_at as edited_at,
+       created_at as created_at,
        merge_sha as merge_sha,
        contributor_id as contributor_id
-    FROM UNNEST($1::TEXT[], $2::BIGINT[] ,$3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $6::BIGINT[])
-         as t(repository, issue,current_state, timestamp, merge_sha, contributor_id)
+    FROM UNNEST($1::TEXT[], $2::BIGINT[] ,$3::TEXT[], $4::TIMESTAMP[], $5::TIMESTAMP[], $6::TEXT[], $7::BIGINT[])
+         as t(repository, issue, current_state, edited_at, created_at, merge_sha, contributor_id)
 ON CONFLICT(repository,issue) DO UPDATE SET
 current_state = excluded.current_state,
-    timestamp = excluded.timestamp,
+    edited_at = excluded.edited_at,
     merge_sha = excluded.merge_sha,
     contributor_id = excluded.contributor_id
-WHERE issues.timestamp < EXCLUDED.timestamp
+WHERE issues.edited_at < EXCLUDED.edited_at
 "#,
             &repos as &[&str],
             &prs,
             &states as &[&str],
-            &timestamps,
+            &edited_ats,
+            &created_ats,
             &merge_shas as &[Option<String>],
             &author_ids
         )
@@ -411,7 +416,7 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
     /// Bulk-upserts a slice of [`Issue`]s into the `issues` table using a single UNNEST query.
     ///
     /// Each row is inserted with `is_pr = false`. Existing rows are only updated when the
-    /// incoming `timestamp` is newer (optimistic upsert). If **all** events carry both
+    /// incoming `edited_at` is newer (optimistic upsert). The `created_at` is set on first insert only. If **all** events carry both
     /// `events_history` and `labels_history`, history rows are inserted afterwards via
     /// [`insert_issues_history`].
     ///
@@ -432,45 +437,50 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
         let mut issues: Vec<i64> = Vec::with_capacity(count);
         let mut author_ids: Vec<i64> = Vec::with_capacity(count);
         let mut current_states: Vec<&str> = Vec::with_capacity(count);
-        let mut timestamps: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
+        let mut edited_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
+        let mut created_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
 
         for event in events {
             repos.push(&event.repository);
             issues.push(event.issue_number);
             author_ids.push(event.author_id);
-            timestamps.push(event.get_timestamp().naive_utc());
+            edited_ats.push(event.get_edited_at().naive_utc());
+            created_ats.push(event.get_created_at().naive_utc());
             current_states.push(event.status.as_str());
         }
 
         sqlx::query!(
             r#"
-INSERT INTO issues (repository, issue, contributor_id, current_state, timestamp, is_pr)
+INSERT INTO issues (repository, issue, contributor_id, current_state, edited_at, created_at, is_pr)
 SELECT
     t.repo,
     t.issue,
     t.author,
     t.state,
-    t.ts,
+    t.edited_at,
+    t.created_at,
     false -- is_pr hardcoded
 FROM UNNEST(
     $1::TEXT[],
     $2::BIGINT[],
     $3::BIGINT[],
     $4::TEXT[],
-    $5::TIMESTAMP[]
-) AS t(repo, issue, author, state, ts)
+    $5::TIMESTAMP[],
+    $6::TIMESTAMP[]
+) AS t(repo, issue, author, state, edited_at, created_at)
 ON CONFLICT (repository, issue) DO UPDATE SET
     current_state = EXCLUDED.current_state,
-    timestamp = EXCLUDED.timestamp,
+    edited_at = EXCLUDED.edited_at,
     contributor_id = EXCLUDED.contributor_id
-WHERE issues.timestamp < EXCLUDED.timestamp
+WHERE issues.edited_at < EXCLUDED.edited_at
 
         "#,
             &repos as &[&str],
             &issues,
             &author_ids,
             &current_states as &[&str],
-            &timestamps
+            &edited_ats,
+            &created_ats
         )
             .execute(&mut *tx)
             .await?;

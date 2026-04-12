@@ -10,6 +10,7 @@ pub struct Issue {
     pub repository: String,
     pub issue_number: i64,
     pub author_id: i64,
+    pub created_at: DateTime<Utc>,
     pub status: IssueStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events_history: Option<Vec<IssueEvent>>,
@@ -131,10 +132,14 @@ impl FromRow<'_, sqlx::postgres::PgRow> for LabelEventAction {
 }
 
 impl Issue {
-    pub fn get_timestamp(&self) -> DateTime<Utc> {
+    pub fn get_edited_at(&self) -> DateTime<Utc> {
         match &self.status {
             IssueStatus::Open { time } => *time,
             IssueStatus::Closed { time } => *time,
         }
+    }
+
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        self.created_at
     }
 }
