@@ -8,8 +8,8 @@ impl Database {
 SELECT team FROM teams
 "#,
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(records.into_iter().map(|r| r.team).collect())
     }
@@ -31,8 +31,8 @@ WHERE repository = $1
 "#,
             repository
         )
-        .fetch_one(&self.pool)
-        .await?;
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(record.timestamp)
     }
@@ -55,9 +55,9 @@ SELECT name,github_name,github_id FROM contributors
 WHERE github_name ilike $1
 "#,
         )
-        .bind(github_name)
-        .fetch_all(&self.pool)
-        .await?;
+            .bind(github_name)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(if record.is_empty() {
             None
@@ -90,8 +90,8 @@ WHERE NOT EXISTS (
 )
             "#,
         )
-        .fetch_all(&self.pool)
-        .await?;
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(records)
     }
@@ -115,9 +115,23 @@ WHERE repository = $1 AND issue = $2
             repository,
             issue
         )
-        .fetch_one(&self.pool)
-        .await?;
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(record.timestamp)
+    }
+
+    pub async fn get_oldest_pr_timestamp(&self, repository: &str) -> Result<Option<NaiveDate>> {
+        let record = sqlx::query!(
+            r#"
+SELECT MIN(timestamp) as timestamp
+FROM issues
+WHERE repository = $1
+"#,
+            repository
+        )
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(record.timestamp.map(|ts| ts.date()))
     }
 }

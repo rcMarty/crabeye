@@ -21,12 +21,12 @@ pub(crate) async fn retry_on_rate_limit<F, Fut, T>(
 ) -> Result<T, octocrab::Error>
 where
     F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T, octocrab::Error>>,
+    Fut: std::future::Future<Output=Result<T, octocrab::Error>>,
 {
     let backoff = backoff::ExponentialBackoffBuilder::new()
         .with_initial_interval(Duration::from_secs(30))
-        .with_max_interval(Duration::from_secs(300))
-        .with_max_elapsed_time(Some(Duration::from_secs(600)))
+        .with_max_interval(Duration::from_secs(60 * 10))
+        .with_max_elapsed_time(Some(Duration::from_secs(60 * 45)))
         .build();
 
     backoff::future::retry(backoff, || {
@@ -46,6 +46,6 @@ where
             }
         }
     })
-    .await
+        .await
 }
 

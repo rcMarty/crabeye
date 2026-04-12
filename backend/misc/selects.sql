@@ -147,4 +147,8 @@ WHERE fa.repository = 'rust-lang/rust'
     FROM contributors_teams c
     WHERE c.team = 'alumni'
 )
-ORDER BY editions DESC
+ORDER BY editions DESC;
+
+select count(*) from issue_event_history;
+select count(*) from issue_labels_history;
+

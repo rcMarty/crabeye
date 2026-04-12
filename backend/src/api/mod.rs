@@ -106,8 +106,8 @@ pub struct PrTopFilesParams {
 pub struct PrCountParams {
     /// Repository identifier to filter PRs, example = "owner/repo"
     pub repository: String,
-    /// Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD
-    pub timestamp: Option<NaiveDate>,
+    /// Anchor date — end of the window (ISO 8601). Defaults to today, example = "2025-01-01"
+    pub anchor_date: Option<NaiveDate>,
     /// Status of the pull requests to filter by
     pub state: PullRequestStatusRequest,
 }
@@ -124,6 +124,24 @@ pub struct PrCountOverTimeParams {
     pub anchor_date: Option<NaiveDate>,
     /// Number of days to look back from anchor_date, default 7, max 90, example = 30
     pub last_n_days: Option<i64>,
+}
+
+/// Response for a single PR count in a specific state, with the queried time window.
+#[derive(serde::Serialize, schemars::JsonSchema, Debug, Clone)]
+pub struct PrCountResponse {
+    /// oldest issue/pr in database
+    pub since: Option<NaiveDate>,
+    pub to: NaiveDate,
+    pub count: i64,
+}
+
+/// Response for PR count over time (time-series), with the queried time window.
+#[derive(serde::Serialize, schemars::JsonSchema, Debug, Clone)]
+pub struct PrCountOverTimeResponse {
+    /// oldest issue/pr in database
+    pub since: Option<NaiveDate>,
+    pub to: NaiveDate,
+    pub data: Vec<DateCount>,
 }
 
 /// Parameters for getting PR/issue state at a specific timestamp.

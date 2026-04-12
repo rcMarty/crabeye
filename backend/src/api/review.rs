@@ -1,8 +1,8 @@
 use crate::api::app_state::AppState;
 use crate::api::{
     ApiError, BuilderFileNode, DateCount, FilesModifiedByTeamParams, FilesModifiedResponse,
-    GroupingLevel, IssueStateParams, PrCountOverTimeParams, PrCountParams, PrTopFilesParams,
-    ReviewParams, WaitingForReviewParams,
+    GroupingLevel, IssueStateParams, PrCountOverTimeParams, PrCountOverTimeResponse, PrCountParams,
+    PrCountResponse, PrTopFilesParams, ReviewParams, WaitingForReviewParams,
 };
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::PrEvent;
@@ -46,7 +46,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             get_with(prs_in_state, |op| {
                 op.description("Get count of PRs in a specific state at a given timestamp")
                     .tag("PR")
-                    .response::<200, Json<i64>>()
+                    .response::<200, Json<PrCountResponse>>()
                     .response::<500, Json<ApiError>>()
             }),
         )
@@ -55,7 +55,7 @@ pub fn pr_routes(state: AppState) -> ApiRouter {
             get_with(prs_in_state_over_time, |op| {
                 op.description("Get count of PRs in a specific state for each day in a lookback window (time-series)")
                     .tag("PR")
-                    .response::<200, Json<Vec<DateCount>>>()
+                    .response::<200, Json<PrCountOverTimeResponse>>()
                     .response::<500, Json<ApiError>>()
             }),
         )
@@ -182,16 +182,19 @@ async fn prs_in_state(
     State(app): State<AppState>,
     Query(params): Query<PrCountParams>,
 ) -> impl IntoApiResponse {
+    let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
+    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None);
+
     match app
         .db
         .get_pr_count_in_state(
             params.repository.as_str(),
-            params.timestamp.unwrap_or(chrono::Utc::now().date_naive()),
+            anchor,
             params.state,
         )
         .await
     {
-        Ok(count) => (StatusCode::OK, Json(count)).into_response(),
+        Ok(count) => (StatusCode::OK, Json(PrCountResponse { since: oldest, to: anchor, count })).into_response(),
         Err(err) => {
             log::error!("Error getting PR count in state: {}", err);
             (
@@ -209,7 +212,9 @@ async fn prs_in_state_over_time(
     Query(params): Query<PrCountOverTimeParams>,
 ) -> impl IntoApiResponse {
     let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
-    let days = params.last_n_days.unwrap_or(7).clamp(1, 90);
+    let days = params.last_n_days.unwrap_or(30);
+
+    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None);
 
     match app
         .db
@@ -222,11 +227,11 @@ async fn prs_in_state_over_time(
         .await
     {
         Ok(rows) => {
-            let result: Vec<DateCount> = rows
+            let data: Vec<DateCount> = rows
                 .into_iter()
                 .map(|(date, count)| DateCount { date, count })
                 .collect();
-            (StatusCode::OK, Json(result)).into_response()
+            (StatusCode::OK, Json(PrCountOverTimeResponse { since: oldest, to: anchor, data })).into_response()
         }
         Err(err) => {
             log::error!("Error getting PR count over time: {}", err);
