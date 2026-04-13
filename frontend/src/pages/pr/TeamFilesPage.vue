@@ -27,7 +27,7 @@ const teamFilesData = ref<FilesModifiedResponse | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showJsonView = ref(false)
-const jsonExpandDepth = ref<number>(0)
+const jsonExpandDepth = ref<number>(3)
 const jsonViewerKey = ref<number>(0)
 const teamOptions = ref<string[]>([])
 
@@ -37,6 +37,11 @@ const groupLevelOptions = [
   { value: 1, text: 'Level 1 (top level folders)' },
   { value: 2, text: 'Level 2 (subfolders)' },
   { value: 3, text: 'Level 3' },
+  { value: 4, text: 'Level 4' },
+  { value: 5, text: 'Level 5' },
+  { value: 6, text: 'Level 6' },
+  { value: 7, text: 'Level 7' },
+  { value: 8, text: 'Level 8' },
   { value: 'all', text: 'All levels (full tree)' }
 ]
 
@@ -79,6 +84,32 @@ const teamFilesEntries = computed(() => {
   if (!teamFilesData.value || teamFilesData.value.type !== 'list') return []
   return Object.entries(teamFilesData.value.data)
 })
+
+// Flat list search and pagination
+const flatSearchTerm = ref('')
+const flatPage = ref(1)
+const flatPerPage = ref(25)
+
+const filteredFlatEntries = computed(() => {
+  const q = flatSearchTerm.value.trim().toLowerCase()
+  if (!q) return teamFilesEntries.value
+  return teamFilesEntries.value.filter(([file]) => file.toLowerCase().includes(q))
+})
+
+const flatTotalPages = computed(() => Math.max(1, Math.ceil(filteredFlatEntries.value.length / flatPerPage.value)))
+
+const paginatedFlatEntries = computed(() => {
+  const start = (flatPage.value - 1) * flatPerPage.value
+  return filteredFlatEntries.value.slice(start, start + flatPerPage.value)
+})
+
+const flatMaxCount = computed(() => {
+  if (teamFilesEntries.value.length === 0) return 1
+  return teamFilesEntries.value[0]?.[1] || 1
+})
+
+// Reset page when search changes
+watch(flatSearchTerm, () => { flatPage.value = 1 })
 
 const teamFilesChartData = computed(() => {
   if (!isTeamFilesFlat.value) return null
@@ -146,8 +177,10 @@ async function fetchTeamFiles() {
 
   loading.value = true
   error.value = null
-  jsonExpandDepth.value = 0
+  jsonExpandDepth.value = 3
   jsonViewerKey.value++
+  flatPage.value = 1
+  flatSearchTerm.value = ''
   try {
     teamFilesData.value = await getFilesModifiedByTeam({
       repository: repository.value,
@@ -207,21 +240,96 @@ async function fetchTeamFiles() {
     <b-alert v-if="error" variant="danger" show dismissible @dismissed="error = null">{{ error }}</b-alert>
 
     <b-card v-if="teamFilesData">
-      <!-- Flat list (bar chart) -->
+      <!-- Flat list (bar chart + table) -->
       <template v-if="isTeamFilesFlat">
         <bar-chart-component
           :data="teamFilesChartData || { labels: [], datasets: [] }"
           :options="chartOptions"
-          :height="400"
+          :height="Math.max(300, Math.min(teamFilesEntries.length * 22, 600))"
           :horizontal="true"
         />
-        <div class="mt-3">
-          <h6>File Details:</h6>
-          <ul class="file-list">
-            <li v-for="([file, count], idx) in teamFilesEntries" :key="idx">
-              <strong>{{ file }}</strong> — {{ count }} modifications
-            </li>
-          </ul>
+
+        <div class="mt-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0">
+              File Details
+              <span class="text-muted fw-normal ms-2 small">({{ filteredFlatEntries.length }} of {{ teamFilesEntries.length }} files)</span>
+            </h6>
+            <div class="d-flex gap-2 align-items-center">
+              <input
+                v-model="flatSearchTerm"
+                type="text"
+                class="form-control form-control-sm"
+                placeholder="Filter files…"
+                style="width: 220px;"
+              />
+              <select v-model.number="flatPerPage" class="form-select form-select-sm" style="width: 80px;">
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-sm table-hover file-table mb-0">
+              <thead>
+                <tr>
+                  <th style="width: 60px;">#</th>
+                  <th>File Path</th>
+                  <th style="width: 150px;">Modifications</th>
+                  <th style="width: 200px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="([file, count], idx) in paginatedFlatEntries" :key="file">
+                  <td class="text-muted">{{ (flatPage - 1) * flatPerPage + idx + 1 }}</td>
+                  <td>
+                    <code class="file-path">{{ file }}</code>
+                  </td>
+                  <td>
+                    <strong>{{ count }}</strong>
+                  </td>
+                  <td>
+                    <div class="progress" style="height: 8px;">
+                      <div
+                        class="progress-bar"
+                        role="progressbar"
+                        :style="{ width: (count / flatMaxCount * 100) + '%' }"
+                        :aria-valuenow="count"
+                        :aria-valuemax="flatMaxCount"
+                      ></div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-if="flatTotalPages > 1" class="d-flex justify-content-between align-items-center mt-3">
+            <small class="text-muted">
+              Showing {{ (flatPage - 1) * flatPerPage + 1 }}–{{ Math.min(flatPage * flatPerPage, filteredFlatEntries.length) }}
+              of {{ filteredFlatEntries.length }}
+            </small>
+            <div class="d-flex gap-1 align-items-center">
+              <button class="btn btn-sm btn-outline-secondary" :disabled="flatPage <= 1" @click="flatPage--">
+                ‹ Prev
+              </button>
+              <template v-for="p in flatTotalPages" :key="p">
+                <button
+                  v-if="p === 1 || p === flatTotalPages || (p >= flatPage - 2 && p <= flatPage + 2)"
+                  class="btn btn-sm"
+                  :class="p === flatPage ? 'btn-primary' : 'btn-outline-secondary'"
+                  @click="flatPage = p"
+                >{{ p }}</button>
+                <span v-else-if="p === flatPage - 3 || p === flatPage + 3" class="px-1 text-muted">…</span>
+              </template>
+              <button class="btn btn-sm btn-outline-secondary" :disabled="flatPage >= flatTotalPages" @click="flatPage++">
+                Next ›
+              </button>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -261,9 +369,17 @@ async function fetchTeamFiles() {
 <style scoped>
 .page-wrapper { padding: 2rem; max-width: 1400px; margin: 0 auto; }
 .form-label { font-weight: 500; margin-bottom: 0.5rem; }
-.file-list { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; }
-.file-list li { padding: 0.5rem; border-bottom: 1px solid #e9ecef; }
-.file-list li:last-child { border-bottom: none; }
+.file-table code.file-path {
+  font-size: 0.82rem;
+  color: #495057;
+  background: #f1f3f5;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.file-table td { vertical-align: middle; }
+.file-table .progress { background: #e9ecef; border-radius: 4px; }
+.file-table .progress-bar { background: rgba(54, 162, 235, 0.8); border-radius: 4px; transition: width 0.3s; }
 .tree-summary { padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; margin-top: 1rem; }
 .json-view { max-height: 600px; overflow: auto; border-radius: 0.5rem; }
 .json-view :deep(.jv-container) { font-size: 0.875rem; }

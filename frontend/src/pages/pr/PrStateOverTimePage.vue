@@ -7,8 +7,10 @@ import {
   getPrsInStateOverTime,
   type DateCount,
   type PullRequestStatusType,
+  type PrCountOverTimeResponse,
   DEFAULT_REPOSITORY
 } from '@/services/prApi'
+import { formatDateEU } from '@/utils/dateFormat'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,8 +20,17 @@ const selectedState = ref<PullRequestStatusType>('WaitingForReview')
 const anchorDate = ref<string>('')
 const lastNDays = ref<number>(30)
 const timeSeriesData = ref<DateCount[]>([])
+const dataSince = ref<string | null>(null)
+const dataTo = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+// Combined chart state
+const showCombined = ref(false)
+const combinedData = ref<Record<PullRequestStatusType, DateCount[]>>({} as any)
+const combinedSince = ref<string | null>(null)
+const combinedTo = ref<string | null>(null)
+const loadingCombined = ref(false)
 
 const stateOptions = [
   { value: 'Open', text: 'Open' },
@@ -128,12 +139,15 @@ async function fetchData() {
   loading.value = true
   error.value = null
   try {
-    timeSeriesData.value = await getPrsInStateOverTime({
+    const response = await getPrsInStateOverTime({
       repository: repository.value,
       state: selectedState.value,
       anchor_date: anchorDate.value || undefined,
       last_n_days: lastNDays.value
     })
+    timeSeriesData.value = response.data
+    dataSince.value = response.since ?? null
+    dataTo.value = response.to ?? null
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch time-series data'
     timeSeriesData.value = []
@@ -141,6 +155,99 @@ async function fetchData() {
     loading.value = false
   }
 }
+
+const ALL_STATES: PullRequestStatusType[] = ['Open', 'Closed', 'Merged', 'WaitingForReview', 'WaitingForAuthor', 'WaitingForBors']
+
+async function fetchCombinedData() {
+  loadingCombined.value = true
+  error.value = null
+  try {
+    const results = await Promise.all(
+      ALL_STATES.map(state =>
+        getPrsInStateOverTime({
+          repository: repository.value,
+          state,
+          anchor_date: anchorDate.value || undefined,
+          last_n_days: lastNDays.value
+        })
+      )
+    )
+    const data: Record<string, DateCount[]> = {}
+    ALL_STATES.forEach((state, i) => { data[state] = results[i].data })
+    combinedData.value = data as Record<PullRequestStatusType, DateCount[]>
+    const firstWithSince = results.find(r => r.since)
+    combinedSince.value = firstWithSince?.since ?? null
+    combinedTo.value = results[0]?.to ?? null
+    showCombined.value = true
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to fetch combined time-series data'
+  } finally {
+    loadingCombined.value = false
+  }
+}
+
+const combinedChartData = computed(() => {
+  if (!showCombined.value || Object.keys(combinedData.value).length === 0) return null
+  // Use labels from the first state that has data
+  const firstData = Object.values(combinedData.value).find(d => d.length > 0)
+  if (!firstData) return null
+
+  return {
+    labels: firstData.map(d => d.date),
+    datasets: ALL_STATES.map(state => {
+      const colors = STATE_COLORS[state]
+      const stateData = combinedData.value[state] || []
+      return {
+        label: stateOptions.find(o => o.value === state)?.text ?? state,
+        data: stateData.map(d => d.count),
+        borderColor: colors.line,
+        backgroundColor: colors.fill,
+        fill: false,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        borderWidth: 2
+      }
+    })
+  }
+})
+
+const combinedChartOptions = computed(() => ({
+  responsive: true,
+  plugins: {
+    legend: { display: true, position: 'bottom' as const },
+    title: {
+      display: true,
+      text: `All PR States over ${lastNDays.value} days`,
+      font: { size: 15 }
+    },
+    tooltip: {
+      mode: 'index' as const,
+      intersect: false,
+      callbacks: {
+        title: (ctx: any) => {
+          const d = ctx[0]?.label
+          return d ? new Date(d).toLocaleDateString('en-GB') : ''
+        }
+      }
+    }
+  },
+  interaction: { mode: 'index' as const, intersect: false },
+  scales: {
+    x: {
+      type: 'category' as const,
+      ticks: {
+        maxTicksLimit: 15,
+        callback: (_: unknown, index: number) => {
+          const firstData = Object.values(combinedData.value).find(d => d.length > 0)
+          const label = firstData?.[index]?.date
+          return label ? new Date(label).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
+        }
+      }
+    },
+    y: { beginAtZero: true, ticks: { precision: 0 } }
+  }
+}))
 </script>
 
 <template>
@@ -173,11 +280,25 @@ async function fetchData() {
           </b-button>
         </div>
       </div>
+      <div class="mt-2">
+        <b-button variant="outline-secondary" size="sm" @click="fetchCombinedData" :disabled="loadingCombined">
+          <b-spinner v-if="loadingCombined" small class="me-1" />
+          {{ loadingCombined ? 'Loading…' : 'Show All States Combined' }}
+        </b-button>
+      </div>
     </b-card>
 
     <b-alert v-if="error" variant="danger" show dismissible @dismissed="error = null">{{ error }}</b-alert>
 
     <template v-if="timeSeriesData.length > 0">
+      <div v-if="dataSince" class="data-range-info mb-3">
+        <small class="text-muted">
+          <i class="pe-7s-info me-1"></i>
+          Data available from <strong>{{ formatDateEU(dataSince) }}</strong>
+          <template v-if="dataTo"> to <strong>{{ formatDateEU(dataTo) }}</strong></template>
+        </small>
+      </div>
+
       <!-- Summary cards -->
       <div v-if="summaryStats" class="summary-grid mb-4">
         <div class="summary-card">
@@ -214,6 +335,25 @@ async function fetchData() {
       <i class="pe-7s-graph3" style="font-size: 3rem; opacity: 0.3;"></i>
       <p class="mt-2">Select a state and click "Fetch" to see the time-series.</p>
     </div>
+
+    <!-- Combined all-states chart -->
+    <template v-if="showCombined && combinedChartData">
+      <hr class="my-4" />
+      <h2 class="page-title mb-1"><i class="pe-7s-graph1 me-2"></i>All States Combined</h2>
+      <p class="text-muted mb-3">Daily count of pull requests across all states in one view.</p>
+
+      <div v-if="combinedSince" class="data-range-info mb-3">
+        <small class="text-muted">
+          <i class="pe-7s-info me-1"></i>
+          Data available from <strong>{{ formatDateEU(combinedSince) }}</strong>
+          <template v-if="combinedTo"> to <strong>{{ formatDateEU(combinedTo) }}</strong></template>
+        </small>
+      </div>
+
+      <b-card>
+        <line-chart-component :data="combinedChartData" :options="combinedChartOptions" :height="450" />
+      </b-card>
+    </template>
   </div>
 </template>
 
@@ -234,4 +374,5 @@ async function fetchData() {
 .trend-up .summary-value { color: #ef4444; }
 .trend-down { border-top-color: #10b981; }
 .trend-down .summary-value { color: #10b981; }
+.data-range-info { padding: 0.5rem 0.75rem; background: #f0f7ff; border-left: 3px solid #3b82f6; border-radius: 0 0.25rem 0.25rem 0; }
 </style>

@@ -470,8 +470,8 @@ date_series AS (
     FROM generate_series($2::timestamp, $3::timestamp, '1 day'::interval) d
 )
 SELECT ds.day AS date,
-       (SELECT cnt FROM pre_range)
-         + COALESCE(SUM(dm.cnt) OVER (ORDER BY ds.day), 0) AS count
+       ((SELECT cnt FROM pre_range)
+         + COALESCE(SUM(dm.cnt) OVER (ORDER BY ds.day), 0))::bigint AS count
 FROM date_series ds
 LEFT JOIN daily_merges dm ON dm.merged_date = ds.day
 ORDER BY ds.day

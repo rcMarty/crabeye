@@ -64,6 +64,7 @@ export interface PrEvent {
   repository: string
   pr_number: number
   author_id: number
+  created_at: string
   state: PullRequestStatus
   events_history?: IssueEvent[] | null
   labels_history?: IssueLabel[] | null
@@ -88,6 +89,20 @@ export type FilesModifiedResponse =
   | { type: 'list'; data: Record<string, number> }
   | { type: 'tree'; data: FileNode }
 
+/** Response for a single PR count in a specific state */
+export interface PrCountResponse {
+  count: number
+  to: string
+  since?: string | null
+}
+
+/** Response for PR count over time (time-series) */
+export interface PrCountOverTimeResponse {
+  data: DateCount[]
+  to: string
+  since?: string | null
+}
+
 export type GroupingLevel = null | number | 'all' | 'none'
 
 // ─── Request Parameter Interfaces ────────────────────────────────────
@@ -109,7 +124,7 @@ export interface TopFilesParams {
 export interface PrsInStateParams {
   repository: string
   state: PullRequestStatusType
-  timestamp?: string | null
+  anchor_date?: string | null
 }
 
 export interface PrsInStateOverTimeParams {
@@ -190,11 +205,11 @@ export async function getTopFiles(params: TopFilesParams): Promise<TopFilesRespo
  * GET /api/pr/prs-in-state
  * Get count of PRs in a specific state at a given timestamp
  */
-export async function getPrsInState(params: PrsInStateParams): Promise<number> {
+export async function getPrsInState(params: PrsInStateParams): Promise<PrCountResponse> {
   const sp = new URLSearchParams()
   sp.set('repository', params.repository)
   sp.set('state', params.state)
-  if (params.timestamp) sp.set('timestamp', params.timestamp)
+  if (params.anchor_date) sp.set('anchor_date', params.anchor_date)
 
   const response = await fetch(`${API_BASE_URL}/pr/prs-in-state?${sp}`)
   if (!response.ok) throw new Error(`Failed to fetch PRs in state: ${response.statusText}`)
@@ -205,7 +220,7 @@ export async function getPrsInState(params: PrsInStateParams): Promise<number> {
  * GET /api/pr/prs-in-state-over-time
  * Get count of PRs in a specific state for each day in a lookback window (time-series)
  */
-export async function getPrsInStateOverTime(params: PrsInStateOverTimeParams): Promise<DateCount[]> {
+export async function getPrsInStateOverTime(params: PrsInStateOverTimeParams): Promise<PrCountOverTimeResponse> {
   const sp = new URLSearchParams()
   sp.set('repository', params.repository)
   sp.set('state', params.state)

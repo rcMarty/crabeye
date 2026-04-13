@@ -17,6 +17,8 @@ const prsStateData = ref<Record<PullRequestStatusType, number>>({
 })
 const loading = ref(false)
 const error = ref<string | null>(null)
+const dataSince = ref<string | null>(null)
+const dataTo = ref<string | null>(null)
 const hasData = computed(() =>
   prsStateData.value.Open > 0 || prsStateData.value.Closed > 0 || prsStateData.value.Merged > 0
 )
@@ -78,12 +80,16 @@ async function fetch() {
   try {
     const states: PullRequestStatusType[] = ['Open', 'Closed', 'Merged', 'WaitingForAuthor', 'WaitingForBors', 'WaitingForReview']
     const results = await Promise.all(
-      states.map(state => getPrsInState({ repository: repository.value, state, timestamp: isoDate || null }))
+      states.map(state => getPrsInState({ repository: repository.value, state, anchor_date: isoDate || undefined }))
     )
     prsStateData.value = {
-      Open: results[0], Closed: results[1], Merged: results[2],
-      WaitingForAuthor: results[3], WaitingForBors: results[4], WaitingForReview: results[5]
+      Open: results[0].count, Closed: results[1].count, Merged: results[2].count,
+      WaitingForAuthor: results[3].count, WaitingForBors: results[4].count, WaitingForReview: results[5].count
     }
+    // Use 'since' from any response that has it
+    const firstWithSince = results.find(r => r.since)
+    dataSince.value = firstWithSince?.since ?? null
+    dataTo.value = results[0]?.to ?? null
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch PR states'
   } finally {
@@ -118,6 +124,13 @@ async function fetch() {
     <b-alert v-if="error" variant="danger" show dismissible @dismissed="error = null">{{ error }}</b-alert>
 
     <b-card v-if="hasData">
+      <div v-if="dataSince" class="data-range-info mb-3">
+        <small class="text-muted">
+          <i class="pe-7s-info me-1"></i>
+          Data available from <strong>{{ formatDateEU(dataSince) }}</strong>
+          <template v-if="dataTo"> to <strong>{{ formatDateEU(dataTo) }}</strong></template>
+        </small>
+      </div>
       <div class="row">
         <div class="col-md-6">
           <pie-chart-component :data="chartData" :options="chartOptions" :height="300" />
@@ -146,4 +159,5 @@ async function fetch() {
 .stat-card { padding: 1rem; background: #f8f9fa; border-radius: 0.5rem; text-align: center; }
 .stat-label { font-size: 0.75rem; color: #6c757d; margin-bottom: 0.5rem; }
 .stat-value { font-size: 1.5rem; font-weight: bold; }
+.data-range-info { padding: 0.5rem 0.75rem; background: #f0f7ff; border-left: 3px solid #3b82f6; border-radius: 0 0.25rem 0.25rem 0; }
 </style>
