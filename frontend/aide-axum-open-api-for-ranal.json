@@ -206,6 +206,20 @@
         "parameters": [
           {
             "in": "query",
+            "name": "anchor_date",
+            "description": "Anchor date — end of the window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
+            "schema": {
+              "description": "Anchor date — end of the window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
             "name": "repository",
             "description": "Repository identifier to filter PRs, example = \"owner/repo\"",
             "required": true,
@@ -225,30 +239,15 @@
               "$ref": "#/components/schemas/PullRequestStatusRequest"
             },
             "style": "form"
-          },
-          {
-            "in": "query",
-            "name": "timestamp",
-            "description": "Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD",
-            "schema": {
-              "description": "Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD",
-              "type": [
-                "string",
-                "null"
-              ],
-              "format": "date"
-            },
-            "style": "form"
           }
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Response for a single PR count in a specific state, with the queried time window.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "integer",
-                  "format": "int64"
+                  "$ref": "#/components/schemas/PrCountResponse"
                 }
               }
             }
@@ -326,14 +325,11 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Response for PR count over time (time-series), with the queried time window.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DateCount"
-                  }
+                  "$ref": "#/components/schemas/PrCountOverTimeResponse"
                 }
               }
             }
@@ -1100,10 +1096,46 @@
           "state"
         ]
       },
+      "PrCountOverTimeResponse": {
+        "description": "Response for PR count over time (time-series), with the queried time window.",
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DateCount"
+            }
+          },
+          "since": {
+            "description": "oldest issue/pr in database",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "to",
+          "data"
+        ]
+      },
       "PrCountParams": {
         "description": "Parameters for getting PR count by status",
         "type": "object",
         "properties": {
+          "anchor_date": {
+            "description": "Anchor date — end of the window (ISO 8601). Defaults to today, example = \"2025-01-01\"",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
           "repository": {
             "description": "Repository identifier to filter PRs, example = \"owner/repo\"",
             "type": "string"
@@ -1115,19 +1147,37 @@
                 "$ref": "#/components/schemas/PullRequestStatusRequest"
               }
             ]
-          },
-          "timestamp": {
-            "description": "Optional timestamp to filter PRs in that day, default is now, format: YYYY-MM-DD",
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date"
           }
         },
         "required": [
           "repository",
           "state"
+        ]
+      },
+      "PrCountResponse": {
+        "description": "Response for a single PR count in a specific state, with the queried time window.",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "since": {
+            "description": "oldest issue/pr in database",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "to",
+          "count"
         ]
       },
       "PrEvent": {
@@ -1136,6 +1186,10 @@
           "author_id": {
             "type": "integer",
             "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "events_history": {
             "type": [
@@ -1170,6 +1224,7 @@
           "repository",
           "pr_number",
           "author_id",
+          "created_at",
           "state"
         ]
       },

@@ -11,6 +11,7 @@ pub struct Config {
     pub repo_owner: String,
     pub repo_name: String,
     pub log_level: String,
+    pub check_interval_secs: u64,
     // pub webhook_secret: Option<SecretString>,
 }
 
@@ -26,8 +27,10 @@ impl Config {
             repo_owner: env::var("REPO_OWNER").context("Missing REPO_OWNER")?,
             repo_name: env::var("REPO_NAME").context("Missing REPO_NAME")?,
             log_level: env::var("LOG_LEVEL").unwrap_or_else(|_| "info".into()),
-            // webhook_secret: env::var("WEBHOOK_SECRET")
-            //     .map(SecretString::new).ok(),
+            check_interval_secs: env::var("CHECK_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(120),
         })
     }
 }

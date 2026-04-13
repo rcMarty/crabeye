@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
             // spawn the task to get new data every minute
             let handler =
                 SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
-            let state_tracker = StateMonitor::new(std::time::Duration::from_secs(60));
+            let state_tracker = StateMonitor::new(std::time::Duration::from_secs(config.check_interval_secs));
 
             // set up and run the API server
             let mut api = aide::openapi::OpenApi::default();
