@@ -280,7 +280,15 @@ WHERE repository = $1
             PullRequestStatusRequest::Closed => {
                 sqlx::query_as::<_, (i64,)>(
                     r#"
-WITH latest_state AS (
+WITH merged_issues AS (
+    SELECT DISTINCT issue
+    FROM issue_event_history
+    WHERE repository = $1
+      AND is_pr = true
+      AND event = 'merged'
+      AND timestamp <= $2
+),
+latest_state AS (
     SELECT DISTINCT ON (issue) issue, event
     FROM issue_event_history
     WHERE repository = $1
@@ -290,8 +298,9 @@ WITH latest_state AS (
     ORDER BY issue, timestamp DESC
 )
 SELECT COUNT(*)
-FROM latest_state
-WHERE event = 'closed'
+FROM latest_state ls
+WHERE ls.event = 'closed'
+  AND NOT EXISTS (SELECT 1 FROM merged_issues mi WHERE mi.issue = ls.issue)
                     "#,
                 )
                     .bind(repository)
@@ -301,16 +310,33 @@ WHERE event = 'closed'
             }
 
             // ── Open (no close/merge event yet, or most recent was reopened) ─────────────
-            // Falls back to issues.current_state for PRs missing close/merge events in history.
+            // Uses event history for historical accuracy.  PRs with no close/merge/reopen
+            // events up to T that were created before T are counted as open.
             PullRequestStatusRequest::Open => {
                 sqlx::query_as::<_, (i64,)>(
                     r#"
+WITH latest_event AS (
+    SELECT DISTINCT ON (issue) issue, event
+    FROM issue_event_history
+    WHERE repository = $1
+      AND is_pr      = true
+      AND event     IN ('closed', 'merged', 'reopened')
+      AND timestamp <= $2
+    ORDER BY issue, timestamp DESC
+)
 SELECT COUNT(i.issue)
 FROM issues i
+LEFT JOIN latest_event le ON le.issue = i.issue
 WHERE i.repository = $1
-  AND i.is_pr = true
+  AND i.is_pr      = true
   AND i.created_at <= $2
-  AND i.current_state NOT IN ('closed', 'merged')
+  AND (
+    -- most recent event up to T is 'reopened' → PR is open
+    le.event = 'reopened'
+    OR
+    -- no close/merge/reopen events up to T → PR was never closed, so it's open
+    le.issue IS NULL
+  )
                     "#,
                 )
                     .bind(repository)
@@ -362,27 +388,10 @@ WHERE i.repository = $1
                 sqlx::query_as::<_, (NaiveDate, i64)>(
                     r#"
 WITH
-needs_synthetic AS (
-    SELECT i.issue, i.edited_at
-    FROM issues i
-    LEFT JOIN (
-        SELECT DISTINCT ON (issue) issue, event
-        FROM issue_event_history
-        WHERE repository = $1 AND is_pr = true
-          AND event IN ('closed', 'merged', 'reopened')
-        ORDER BY issue, timestamp DESC
-    ) le ON le.issue = i.issue
-    WHERE i.repository = $1 AND i.is_pr = true
-      AND i.current_state IN ('closed', 'merged')
-      AND (le.issue IS NULL OR le.event = 'reopened')
-),
 all_transitions AS (
     SELECT issue, created_at AS timestamp, 'created' AS event_type
     FROM issues
     WHERE repository = $1 AND is_pr = true
-    UNION ALL
-    SELECT issue, edited_at AS timestamp, 'closed' AS event_type
-    FROM needs_synthetic
     UNION ALL
     SELECT issue, timestamp, event AS event_type
     FROM issue_event_history
@@ -406,6 +415,7 @@ label_transitions AS (
     FROM issue_labels_history
     WHERE repository = $1 AND is_pr = true AND label = $4
 ),
+-- Periods when the label is active: [ADDED, next label event)
 label_active_periods AS (
     SELECT issue,
            tsrange(timestamp, COALESCE(next_ts, 'infinity'::timestamp), '[)') AS period
@@ -421,6 +431,9 @@ in_state_periods AS (
      AND lap.period && op.period
     WHERE NOT isempty(lap.period * op.period)
 ),
+-- Convert each period to (start → +1) and (end → -1) delta events.
+-- Because LEAD() produces non-overlapping periods per issue, running SUM
+-- is equivalent to COUNT(DISTINCT issue) at any point in time.
 period_deltas AS (
     SELECT lower(valid_period)::date AS event_date,  1 AS delta FROM in_state_periods
     UNION ALL
@@ -510,6 +523,11 @@ ORDER BY ds.day
                 sqlx::query_as::<_, (NaiveDate, i64)>(
                     r#"
 WITH
+merged_issues AS (
+    SELECT DISTINCT issue
+    FROM issue_event_history
+    WHERE repository = $1 AND is_pr = true AND event = 'merged'
+),
 state_transitions AS (
     SELECT issue,
            timestamp::date AS start_date,
@@ -520,10 +538,14 @@ state_transitions AS (
       AND event IN ('closed', 'merged', 'reopened')
 ),
 period_deltas AS (
-    SELECT start_date AS event_date,  1 AS delta FROM state_transitions WHERE event = 'closed'
+    SELECT start_date AS event_date,  1 AS delta FROM state_transitions st
+    WHERE st.event = 'closed'
+      AND NOT EXISTS (SELECT 1 FROM merged_issues mi WHERE mi.issue = st.issue)
     UNION ALL
-    SELECT end_date   AS event_date, -1 AS delta FROM state_transitions WHERE event = 'closed'
-    AND end_date IS NOT NULL
+    SELECT end_date   AS event_date, -1 AS delta FROM state_transitions st
+    WHERE st.event = 'closed'
+      AND end_date IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM merged_issues mi WHERE mi.issue = st.issue)
 ),
 daily_deltas AS (
     SELECT event_date, SUM(delta) AS daily_change
@@ -555,40 +577,20 @@ ORDER BY ds.day
             }
 
             // ── Open (created/reopened, not yet closed/merged) ──────────────────
-            // Some PRs have current_state='closed'/'merged' in `issues` but are missing
-            // the corresponding close/merge event in `issue_event_history` (data gap).
-            // Without a synthetic terminal event those PRs would be counted as open forever.
-            // `needs_synthetic` finds PRs where current_state says closed/merged but the
-            // last recorded event is 'reopened' (or there are no events at all), and injects
-            // a synthetic 'closed' event at edited_at so LEAD() closes the open period.
+            // Uses the same LEAD-computed open periods as the original range-join query so
+            // that PRs with both a 'closed' and a 'merged' event (GitHub sends both) are
+            // handled correctly – LEAD picks only the *first* following event, preventing
+            // the naive delta from double-subtracting such PRs.
+            // The periods are non-overlapping per issue (guaranteed by LEAD), so the
+            // running SUM is equivalent to COUNT(DISTINCT issue).
             PullRequestStatusRequest::Open => {
                 sqlx::query_as::<_, (NaiveDate, i64)>(
                     r#"
 WITH
--- PRs that are closed/merged per current_state but whose last event is still
--- 'reopened' (or missing) → they need a synthetic terminal event
-needs_synthetic AS (
-    SELECT i.issue, i.edited_at
-    FROM issues i
-    LEFT JOIN (
-        SELECT DISTINCT ON (issue) issue, event
-        FROM issue_event_history
-        WHERE repository = $1 AND is_pr = true
-          AND event IN ('closed', 'merged', 'reopened')
-        ORDER BY issue, timestamp DESC
-    ) le ON le.issue = i.issue
-    WHERE i.repository = $1 AND i.is_pr = true
-      AND i.current_state IN ('closed', 'merged')
-      AND (le.issue IS NULL OR le.event = 'reopened')
-),
 all_transitions AS (
     SELECT issue, created_at AS timestamp, 'created' AS event_type
     FROM issues
     WHERE repository = $1 AND is_pr = true
-    UNION ALL
-    -- Synthetic terminal events for PRs missing close/merge in event history
-    SELECT issue, edited_at AS timestamp, 'closed' AS event_type
-    FROM needs_synthetic
     UNION ALL
     SELECT issue, timestamp, event AS event_type
     FROM issue_event_history
@@ -600,13 +602,15 @@ ordered_transitions AS (
            LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
     FROM all_transitions
 ),
+-- Non-overlapping open periods per PR: [created|reopened, next event)
 open_periods AS (
     SELECT issue,
            timestamp::date AS start_date,
-           LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp)::date AS end_date
+           next_ts::date   AS end_date
     FROM ordered_transitions
     WHERE event_type IN ('created', 'reopened')
 ),
+-- Convert each open period to (+1 on open day, -1 on close day)
 period_deltas AS (
     SELECT start_date AS event_date,  1 AS delta FROM open_periods
     UNION ALL
