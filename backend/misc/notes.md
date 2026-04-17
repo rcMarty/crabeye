@@ -28,8 +28,8 @@ postgres o trochu rychlejší cca 8min 10000 pull requestů vs cca 12min bez bul
 getování pull requestů z github api : 2:30 za 100 requestů -> 43 requestů za 1min
 upsert do postgre databáze 10000 pull requestů za 9:32 minut -> 10 PR za 0.57s
 POSTGRE:
-[2025-05-20T15:58:58.658Z INFO  ranal::git] Inserting to database:  took: 9 minutes 32 seconds
-[2025-05-20T15:58:58.658Z INFO  ranal::git] Overall getting resources:  took: 12 minutes 10 seconds
+[2025-05-20T15:58:58.658Z INFO  crabeye::git] Inserting to database:  took: 9 minutes 32 seconds
+[2025-05-20T15:58:58.658Z INFO  crabeye::git] Overall getting resources:  took: 12 minutes 10 seconds
 
 # poznámky
 

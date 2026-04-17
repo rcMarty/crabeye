@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use std::option::Option;
 
 #[derive(Parser)]
-#[command(name = "ranal", version, about = "Rust Analyzer CLI")]
+#[command(name = "crabeye", version, about = "Crabeye CLI")]
 pub struct Cli {
     #[command(subcommand)]
     pub(crate) command: Commands,

@@ -1,6 +1,6 @@
-# Ranal
+# Crabeye
 
-**Ranal** is a simple, efficient tool for analyzing GitHub repositories primarly Rust repository.
+**Crabeye** is a simple, efficient tool for analyzing GitHub repositories primarly Rust repository.
 Track everything about contributors, issues, and repository activity — all written in Rust.
 
 ## Features (Planned)
@@ -29,7 +29,7 @@ sqlx migrate run
 ### Setup via local Postgres
 
 Make sure you have a running Postgres instance.
-Create a database named `ranal` (or any name you prefer) and set up the connection string in the
+Create a database named `crabeye` (or any name you prefer) and set up the connection string in the
 `.env` file.
 
 Now you can create database `sqlx database create` and run migrations using `sqlx migrate run`.

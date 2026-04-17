@@ -9,8 +9,8 @@ services:
       - ~/apps/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_PASSWORD=S3cret
-      - POSTGRES_USER=ranal_user
-      - POSTGRES_DB=ranal_db
+      - POSTGRES_USER=crabeye_user
+      - POSTGRES_DB=crabeye_db
 
 
 volumes:

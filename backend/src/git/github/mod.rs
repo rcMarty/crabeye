@@ -44,7 +44,7 @@ impl GitHubApi {
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open("ranal_octocrab_errors.log")
+            .open("crabeye_octocrab_errors.log")
             .unwrap();
 
         file.write_all(content.as_bytes()).unwrap();

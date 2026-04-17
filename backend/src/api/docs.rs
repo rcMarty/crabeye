@@ -22,7 +22,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/",
             get_with(
                 Scalar::new("/docs/private/api.json")
-                    .with_title("Ranal Redoc API documentation")
+                    .with_title("Crabeye Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -32,7 +32,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/redoc",
             get_with(
                 Redoc::new("/docs/private/api.json")
-                    .with_title("Ranal Redoc API documentation")
+                    .with_title("Crabeye Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -42,7 +42,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/swagger",
             get_with(
                 Swagger::new("/docs/private/api.json")
-                    .with_title("Ranal Swagger API documentation")
+                    .with_title("Crabeye Swagger API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -59,7 +59,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
 }
 
 pub fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
-    api.title("Aide axum Open API for ranal")
+    api.title("Aide axum Open API for crabeye")
         .summary("Rust compiler repository analyzer")
         .description(include_str!("../../readme.md"))
         .tag(Tag {

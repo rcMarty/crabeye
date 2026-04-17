@@ -1,5 +1,5 @@
 -- =============================================================================
--- Analyzované SQL dotazy – aplikace ranal
+-- Analyzované SQL dotazy – aplikace crabeye
 -- Databáze: PostgreSQL 14, repozitář: rust-lang/rust
 -- Počty řádků: issues ~200 000, issue_event_history ~564 000,
 --              issue_labels_history ~355 000, file_activity ~525 000
