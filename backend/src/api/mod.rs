@@ -29,6 +29,42 @@ pub struct DateCount {
     pub count: i64,
 }
 
+/// Deserializes an `Option<i64>` from a query-string value (always a string like `"42"`).
+///
+/// Required because `#[serde(flatten)]` with `serde_urlencoded` (axum `Query`) bypasses
+/// the normal string-to-number coercion, passing raw `&str` values to the inner deserializer.
+fn deserialize_opt_i64_from_str<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(s) => s.parse::<i64>().map(Some).map_err(serde::de::Error::custom),
+    }
+}
+
+/// Flat pagination query parameters — used with `#[serde(flatten)]`.
+///
+/// Both fields are optional; missing values fall back to `Pagination` defaults
+/// (page = 1, per_page = 100).  This form is required because serde_urlencoded
+/// (axum `Query`) does **not** support flattening `Option<T>`.
+#[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone, Default)]
+pub struct PaginationParams {
+    /// Page number (1-based), default 1
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_str")]
+    pub page: Option<i64>,
+    /// Items per page, default 100, max 1000
+    #[serde(default, deserialize_with = "deserialize_opt_i64_from_str")]
+    pub per_page: Option<i64>,
+}
+
+impl PaginationParams {
+    pub fn into_pagination(self) -> Pagination {
+        Pagination::new(self.page, self.per_page)
+    }
+}
+
 /// Optional pagination parameters
 /// Used in multiple endpoints
 /// If pagination is not provided, defaults are used
@@ -37,7 +73,8 @@ pub struct DateCount {
 pub struct WaitingForReviewParams {
     /// Repository identifier to filter reviews, example = "owner/repo"
     pub repository: String,
-    pub pagination: Option<Pagination>,
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
 }
 /// Common pagination parameters
 /// Used in multiple endpoints
@@ -84,11 +121,10 @@ pub struct ReviewParams {
     pub last_n_days: Option<i64>,
     /// Anchor date — end of the lookback window (ISO 8601). Defaults to today, example = "2025-01-01"
     pub anchor_date: Option<NaiveDate>,
-
-    pub pagination: Option<Pagination>,
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
 }
 
-/// Parameters for getting top N files modified by a user
 #[derive(serde::Deserialize, Debug, Clone, schemars::JsonSchema)]
 pub struct PrTopFilesParams {
     /// Repository identifier to filter reviews, example = "owner/repo"

@@ -351,7 +351,7 @@ async function fetchTeamFiles() {
           />
         </div>
         <div v-else>
-          <treemap-chart-component :data="(teamFilesTreeData || {})" :height="500" />
+          <treemap-chart-component :data="(teamFilesTreeData || {})" :height="900" />
           <div v-if="teamFilesTreeData" class="mt-3 tree-summary">
             <p><strong>Root:</strong> {{ teamFilesTreeData.name }}</p>
             <p><strong>Total Modifications:</strong> {{ teamFilesTreeData.modifications }}</p>

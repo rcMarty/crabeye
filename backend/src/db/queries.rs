@@ -21,6 +21,8 @@ impl Database {
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         log::debug!("timestamp_ start {} end {}", timestamp_start, timestamp_end);
 
+        //TODO recursivelly find people who are in some type of "global" team like all 
+
         let entries = sqlx::query_as::<_, (String, i64)>(
             r#"
 SELECT fa.file_path, count(*) as editions
@@ -387,8 +389,7 @@ ordered_transitions AS (
 -- Periods when a PR is open: [created|reopened, next close/merge)
 open_periods AS (
     SELECT issue,
-           timestamp AS start_ts,
-           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+           tsrange(timestamp, COALESCE(next_ts, '9999-12-31'::timestamp), '[)') AS open_period
     FROM ordered_transitions
     WHERE event_type IN ('created', 'reopened')
 ),
@@ -402,21 +403,18 @@ label_transitions AS (
 -- Periods when the label is active: [ADDED, next label event)
 label_active_periods AS (
     SELECT issue,
-           timestamp AS start_ts,
-           COALESCE(next_ts, '9999-12-31'::timestamp) AS end_ts
+              tsrange(timestamp, COALESCE(next_ts, '9999-12-31'::timestamp), '[)') AS label_period
     FROM label_transitions
     WHERE action = 'ADDED'
 ),
 -- Intersection: PR is in target state when BOTH open AND label active
 in_state_periods AS (
     SELECT lap.issue,
-           GREATEST(lap.start_ts, op.start_ts) AS start_ts,
-           LEAST(lap.end_ts, op.end_ts)         AS end_ts
+           lap.label_period * op.open_period as valid_period
     FROM label_active_periods lap
     JOIN open_periods op
       ON lap.issue = op.issue
-     AND lap.start_ts < op.end_ts
-     AND lap.end_ts   > op.start_ts
+     AND lap.label_period && op.open_period -- period intersection operator
 ),
 date_series AS (
     SELECT d::date AS day
@@ -425,8 +423,8 @@ date_series AS (
 SELECT ds.day AS date, COUNT(DISTINCT isp.issue) AS count
 FROM date_series ds
 LEFT JOIN in_state_periods isp
-       ON ds.day >= isp.start_ts::date
-      AND ds.day <  isp.end_ts::date
+       ON ds.day >= lower(isp.valid_period)::date
+      AND ds.day <  upper(isp.valid_period)::date
 GROUP BY ds.day
 ORDER BY ds.day
                     "#,
@@ -724,7 +722,7 @@ JOIN (
         let count = sqlx::query!(
             r#"
 WITH current_waiting_labels AS (
-    SELECT DISTINCT ON (issue, label)
+    SELECT DISTINCT ON (issue)
         issue,
         label,
         action
@@ -732,13 +730,13 @@ WITH current_waiting_labels AS (
     WHERE repository = $1
       AND is_pr = true
       AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
-    ORDER BY issue, label, timestamp DESC
 )
 SELECT COUNT(DISTINCT l.issue)
 FROM current_waiting_labels l
 JOIN issues c ON l.issue = c.issue AND c.repository = $1
 WHERE l.action = 'ADDED'
-  AND c.is_pr = true;
+  AND c.is_pr = true
+  AND c.current_state NOT IN ('closed', 'merged');
 "#,
             repository
         )
@@ -750,16 +748,17 @@ WHERE l.action = 'ADDED'
         let record = sqlx::query_as::<_, PrEvent>(
             r#"
 WITH current_waiting_labels AS (
-    SELECT DISTINCT ON (issue, label)
+    -- Per PR keep only the single most-recently-changed waiting label
+    SELECT DISTINCT ON (issue)
+        timestamp,
         issue,
         label,
-        timestamp,
         action
     FROM issue_labels_history
     WHERE repository = $1
       AND is_pr = true
       AND label IN ('S-waiting-on-review', 'S-waiting-on-bors', 'S-waiting-on-author')
-    ORDER BY issue, label, timestamp DESC
+    ORDER BY issue ,timestamp DESC
 )
 SELECT
     c.repository AS repository,
@@ -773,6 +772,7 @@ FROM current_waiting_labels l
 JOIN issues c ON l.issue = c.issue AND c.repository = $1
 WHERE l.action = 'ADDED'
   AND c.is_pr = true
+  AND c.current_state NOT IN ('closed', 'merged')
 OFFSET $2
 LIMIT $3;
         "#,

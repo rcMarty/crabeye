@@ -163,8 +163,8 @@ export interface FilesModifiedByTeamParams {
 
 function addPagination(sp: URLSearchParams, pagination?: Pagination | null) {
   if (pagination) {
-    sp.set('pagination[page]', pagination.page.toString())
-    sp.set('pagination[per_page]', pagination.per_page.toString())
+    sp.set('page', pagination.page.toString())
+    sp.set('per_page', pagination.per_page.toString())
   }
 }
 

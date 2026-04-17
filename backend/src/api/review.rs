@@ -105,7 +105,7 @@ async fn made_review(
             params.file,
             params.anchor_date,
             params.last_n_days,
-            params.pagination.unwrap_or_default(),
+            params.pagination.into_pagination(),
         )
         .await
     {
@@ -290,7 +290,7 @@ async fn waiting_for_review(
         .db
         .get_prs_waiting_for_review(
             params.repository.as_str(),
-            params.pagination.unwrap_or_default(),
+            params.pagination.into_pagination(),
         )
         .await
     {
