@@ -1,4 +1,4 @@
-use crate::api::Pagination;
+use crate::pagination::Pagination;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct PaginatedResponse<T> {

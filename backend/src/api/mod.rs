@@ -1,14 +1,21 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
+use crate::pagination::Pagination;
 use chrono::NaiveDate;
 use serde::Deserialize;
 use std::collections::HashMap;
 use indexmap::IndexMap;
 
-pub mod app_state;
-pub mod docs;
-pub mod issues;
-pub mod review;
-pub mod teams;
+mod app_state;
+mod docs;
+mod issues;
+mod review;
+mod teams;
+
+pub use app_state::AppState;
+pub use docs::{api_docs, docs_routes};
+pub use issues::issues_routes;
+pub use review::pr_routes;
+pub use teams::teams_routes;
 
 /// Unified error response returned by all API endpoints.
 #[derive(serde::Serialize, schemars::JsonSchema, Debug, Clone)]
@@ -75,39 +82,6 @@ pub struct WaitingForReviewParams {
     pub repository: String,
     #[serde(flatten)]
     pub pagination: PaginationParams,
-}
-/// Common pagination parameters
-/// Used in multiple endpoints
-/// Defaults to page 1 and 100 items per page
-/// If page or per_page is not provided, defaults are used
-#[derive(serde::Deserialize, schemars::JsonSchema, Debug, Clone)]
-pub struct Pagination {
-    pub page: i64,
-    pub per_page: i64,
-}
-
-impl Default for Pagination {
-    fn default() -> Self {
-        Pagination {
-            page: 1,
-            per_page: 100,
-        }
-    }
-}
-
-impl Pagination {
-    pub fn new(page: Option<i64>, per_page: Option<i64>) -> Self {
-        Pagination {
-            page: page.unwrap_or(1).max(1),
-            per_page: per_page.unwrap_or(100).clamp(1, 1000),
-        }
-    }
-    /// Returns (limit, offset) tuple for SQL queries
-    pub fn limit_offset(&self) -> (i64, i64) {
-        let limit = self.per_page;
-        let offset = (self.page - 1) * self.per_page;
-        (limit.max(0), offset.max(0))
-    }
 }
 
 /// Parameters for getting reviews for a specific file
@@ -280,7 +254,7 @@ impl BuilderFileNode {
             .collect();
 
         // sort children by modifications in descending order
-        children.sort_by(|a, b| b.modifications.cmp(&a.modifications));
+        children.sort_by_key(|a| -a.modifications);
 
         FileNode {
             name: self.name,

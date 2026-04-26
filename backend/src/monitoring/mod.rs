@@ -1,1 +1,3 @@
-pub mod state_tracker;
+mod state_tracker;
+
+pub use state_tracker::StateMonitor;

@@ -1,5 +1,4 @@
-use crate::git::github::SyncMode;
-use crate::git::SyncHandler;
+use crate::git::{SyncHandler, SyncMode};
 use chrono::{NaiveDateTime, Utc};
 use std::time::Duration;
 use tokio::time;
@@ -21,7 +20,7 @@ impl StateMonitor {
             log::info!("Starting state tracking iteration");
 
             // fetch new data from git repository
-            if let Err(e) = analyze.repo.update() {
+            if let Err(e) = analyze.update_repository() {
                 log::error!("Error updating git repository: {:?}", e);
                 continue;
             } else {

@@ -3,39 +3,72 @@ name = "crabeye"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "crabeye"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crabeye"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# Low-level module features
+db = ["dep:anyhow", "dep:chrono", "dep:log", "dep:schemars", "dep:serde", "dep:sqlx"]
+git = [
+	"db",
+	"dep:backoff",
+	"dep:git2",
+	"dep:indicatif",
+	"dep:lazy_static",
+	"dep:octocrab",
+	"dep:reqwest",
+	"dep:rust_team_data",
+	"dep:secrecy",
+	"dep:tokio",
+]
+api = ["db", "dep:aide", "dep:axum", "dep:indexmap", "dep:tower-http", "dep:tokio"]
+monitoring = ["git", "dep:tokio"]
+cli = ["api", "monitoring", "dep:clap", "dep:dotenvy", "dep:env_logger", "dep:indicatif-log-bridge"]
+# High-level aliases
+sync = ["git"]
+server = ["api", "monitoring"]
+full = ["cli"]
+
 [dependencies]
-octocrab = { git = "https://github.com/rcMarty/octocrab.git" } # GitHub API client
-git2 = "0.20.4" # Git repository management
-axum = { version = "0.8.8", features = ["macros"] }
-aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"] } # automatic api documentation generation
-tower-http = { version = "0.6.8", features = ["cors"] }
-backoff = { version = "0.4", features = ["tokio"] }
+octocrab = { git = "https://github.com/rcMarty/octocrab.git", optional = true } # GitHub API client
+git2 = { version = "0.20.4", optional = true } # Git repository management
+axum = { version = "0.8.8", features = ["macros"], optional = true }
+aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"], optional = true } # automatic api documentation generation
+tower-http = { version = "0.6.8", features = ["cors"], optional = true }
+backoff = { version = "0.4", features = ["tokio"], optional = true }
 
 #trustfall = "0.8.0"  #query engine for all kind of data sources
-rust_team_data = { git = "https://github.com/rust-lang/team" }
+rust_team_data = { git = "https://github.com/rust-lang/team", optional = true }
 
-sqlx = { version = "0.8.6", features = ["default", "postgres", "runtime-tokio-native-tls", "macros", "migrate", "chrono"] }
+sqlx = { version = "0.8.6", features = ["default", "postgres", "runtime-tokio-native-tls", "macros", "migrate", "chrono"], optional = true }
 
-serde = { version = "1.0.228" }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = "1.0.149"
-schemars = { version = "0.9.0", features = ["derive", "chrono04", "std"] } # version required by aide
+schemars = { version = "0.9.0", features = ["derive", "chrono04", "std"], optional = true } # version required by aide
 
-tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "macros"], optional = true }
 #tokio-macros = "2.5.0"
 
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "query", "native-tls"] }
-clap = { version = "4.5.52", features = ["derive"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "query", "native-tls"], optional = true }
+clap = { version = "4.5.52", features = ["derive"], optional = true }
 
-secrecy = "0.10.3"  # secret codes and so on management (required by octocrab)
-anyhow = "1.0.100"   # error handling
-chrono = "0.4.42"   # date and time
-dotenvy = "0.15.7"
+secrecy = { version = "0.10.3", optional = true }  # secret codes and so on management (required by octocrab)
+anyhow = { version = "1.0.100", optional = true }   # error handling
+chrono = { version = "0.4.42", features = ["serde"], optional = true }   # date and time
+dotenvy = { version = "0.15.7", optional = true }
 
-indexmap = { version = "2.13.0", features = ["serde"] }
+indexmap = { version = "2.13.0", features = ["serde"], optional = true }
 
 # logging
-log = { version = "0.4.29", features = ["kv", "kv_serde", "kv_std", ] }
-env_logger = "0.11.8"
-indicatif = "0.18.3"
-indicatif-log-bridge = "0.2.3" # logging and progress bar via indicatif
-lazy_static = "1.5.0" # hack for progress bars
+log = { version = "0.4.29", features = ["kv", "kv_serde", "kv_std", ], optional = true }
+env_logger = { version = "0.11.8", optional = true }
+indicatif = { version = "0.18.3", optional = true }
+indicatif-log-bridge = { version = "0.2.3", optional = true } # logging and progress bar via indicatif
+lazy_static = { version = "1.5.0", optional = true } # hack for progress bars

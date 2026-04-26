@@ -1,4 +1,4 @@
-use crate::api::app_state::AppState;
+use crate::api::AppState;
 use aide::openapi::Tag;
 use aide::swagger::Swagger;
 use aide::transform::TransformOpenApi;

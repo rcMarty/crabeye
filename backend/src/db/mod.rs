@@ -1,13 +1,12 @@
 #[allow(unused)]
 pub mod model;
 
-// src/db/mod.rs
-use crate::api::Pagination;
+use crate::pagination::Pagination;
 use crate::db::model::issue::{IssueEvent, IssueLabel};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatusRequest};
 use crate::db::model::responses::TopFilesResponse;
-use crate::db::model::team_member::{Contributor, Team};
+use crate::db::model::team_member::Contributor;
 use crate::db::model::{BackfillRecord, IssueLike};
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, Utc};
@@ -15,11 +14,11 @@ use sqlx::migrate::MigrateDatabase;
 use sqlx::{PgPool, Pool, Postgres};
 use std::collections::HashMap;
 
-pub mod inserts;
-pub mod misc;
-pub mod queries;
+mod inserts;
+mod misc;
+mod queries;
 
 #[derive(Debug, Clone)]
 pub struct Database {
-    pub pool: Pool<Postgres>,
+    pool: Pool<Postgres>,
 }

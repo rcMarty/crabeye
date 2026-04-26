@@ -9,6 +9,39 @@ Track everything about contributors, issues, and repository activity — all wri
 - Track open and closed issues.
 - Gather repository statistics like commits, pull requests, and more.
 
+## Crate layout
+
+`crabeye` now builds both as:
+
+- a CLI application (default build), and
+- a library crate with feature-gated modules.
+
+### Library features
+
+- `db` — database models and query layer
+- `git` — Git + GitHub synchronization (`db` is enabled automatically)
+- `api` — REST API routes (`db` is enabled automatically)
+- `monitoring` — periodic sync monitoring (`git` is enabled automatically)
+- `cli` — console application entrypoint and runtime setup (enabled by default)
+
+### Feature aliases
+
+- `sync` → `git`
+- `server` → `api` + `monitoring`
+- `full` → `cli`
+
+Examples:
+
+```bash
+cargo build
+cargo build --lib --no-default-features --features db
+cargo build --lib --no-default-features --features git
+cargo build --lib --no-default-features --features api
+cargo build --lib --no-default-features --features sync
+cargo build --lib --no-default-features --features server
+cargo build --no-default-features --features full
+```
+
 ## Configuration
 
 Create a `.env` file in the `backend` directory from the provided `.env.example` file and fill in
@@ -40,11 +73,11 @@ running: ``cargo install sqlx-cli --features native-tls``*
 
 ## Usage
 
-This command will fill the database with last 500 pull requests as demonstration. *(Number is number
-of pages to fetch, each page contains 100 items)*
+This command will fill the database with the last 500 pull requests as a demonstration. *(The number
+is the number of pages to fetch; each page contains up to 100 items.)*
 
 ```bash
-cargo run -- analyze --sync 5
+cargo run -- sync-all --sync 5
 ```
 
 If you have all the data you want you can run the server:

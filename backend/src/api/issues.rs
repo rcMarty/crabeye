@@ -1,5 +1,4 @@
-use crate::api::app_state::AppState;
-use crate::api::{ApiError, IssueStateParams};
+use crate::api::{ApiError, AppState, IssueStateParams};
 use crate::db::model::issue::IssueEvent;
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
 use axum::{

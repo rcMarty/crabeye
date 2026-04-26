@@ -20,6 +20,7 @@ impl Database {
 
     /// Converts a [`rust_team_data::v1::TeamKind`] variant into the corresponding
     /// lowercase string used as the `kind` column value in the `teams` table.
+    #[cfg(feature = "git")]
     fn team_kind_to_str(kind: rust_team_data::v1::TeamKind) -> &'static str {
         match kind {
             rust_team_data::v1::TeamKind::Team => "team",
@@ -38,6 +39,7 @@ impl Database {
     ///
     /// # Errors
     /// Returns an error if any SQL operation or the transaction commit fails.
+    #[cfg(feature = "git")]
     pub async fn upsert_team_members(
         &self,
         teams: &[rust_team_data::v1::Team],
@@ -336,9 +338,9 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             .await?;
 
         if events.iter().all(|event| event.events_history.is_some())
-            && events.iter().all(|event| event.labels_history.is_some())
+            || events.iter().all(|event| event.labels_history.is_some())
         {
-            self.insert_issues_history(events, &mut tx).await?;
+            self.insert_issuelike_history(events, &mut tx).await?;
         }
         tx.commit().await?;
 
@@ -486,9 +488,9 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             .await?;
 
         if events.iter().all(|event| event.events_history.is_some())
-            && events.iter().all(|event| event.labels_history.is_some())
+            || events.iter().all(|event| event.labels_history.is_some())
         {
-            self.insert_issues_history(events, &mut tx).await?;
+            self.insert_issuelike_history(events, &mut tx).await?;
         }
         tx.commit().await?;
 
@@ -513,21 +515,22 @@ WHERE issues.edited_at < EXCLUDED.edited_at
 
         let check = history.iter().all(|issue| issue.labels_history().is_some())
             && history.iter().all(|issue| issue.events_history().is_some());
+        //TODO those checks are unnecessary
         if !check {
             let ok_history = history
                 .iter()
                 .filter(|&issue| {
-                    issue.labels_history().is_some() && issue.events_history().is_some()
+                    issue.labels_history().is_some() || issue.events_history().is_some()
                 })
                 .collect::<Vec<_>>();
             log::warn!("Some events are missing labels_history or states_history. Only inserting events with complete history. Total: {}, with complete history: {}", history.len(), ok_history.len());
-            self.insert_issues_history(ok_history.as_ref(), &mut tx)
+            self.insert_issuelike_history(ok_history.as_ref(), &mut tx)
                 .await?;
             tx.commit().await?;
             return Ok(());
         }
 
-        self.insert_issues_history(history, &mut tx).await?;
+        self.insert_issuelike_history(history, &mut tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -544,7 +547,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     ///
     /// # Errors
     /// Returns an error if any SQL operation fails.
-    async fn insert_issues_history<'c, T: IssueLike>(
+    async fn insert_issuelike_history<'c, T: IssueLike>(
         &self,
         events: &[T],
         tx: &mut sqlx::Transaction<'c, Postgres>,

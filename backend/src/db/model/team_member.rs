@@ -1,13 +1,4 @@
-use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
-use chrono::Utc;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::Database;
-use sqlx::Encode;
-use sqlx::Postgres;
-use sqlx::{FromRow, Row, Type};
-use std::hash::Hash;
-
+#[cfg(feature = "git")]
 #[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
 pub struct TeamMember {
     #[sqlx(try_from = "i64")]
@@ -17,6 +8,7 @@ pub struct TeamMember {
     pub teams: Vec<Team>,
 }
 
+#[cfg(feature = "git")]
 #[derive(sqlx::FromRow, serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
 pub struct Team {
     pub team: String,
@@ -34,6 +26,7 @@ pub struct Contributor {
     pub name: Option<String>,
 }
 
+#[cfg(feature = "git")]
 impl From<octocrab::models::Author> for Contributor {
     fn from(author: octocrab::models::Author) -> Self {
         Contributor {

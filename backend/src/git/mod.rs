@@ -1,8 +1,8 @@
 use crate::db::model::pr_event::{FileActivity, PullRequestStatus};
 use crate::db::Database;
 use crate::git::git::Repo;
-use crate::git::github::{GitHubApi, SyncMode};
-use crate::misc::with_progress_bar_async;
+use crate::git::github::GitHubApi;
+use crate::progress::{multi_progress_bar as shared_multi_progress_bar, with_progress_bar_async};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::Oid;
 use indicatif::MultiProgress;
@@ -11,11 +11,13 @@ use secrecy::SecretString;
 use std::path::Path;
 use std::sync::Mutex;
 
-pub mod git;
-pub mod github;
+pub(crate) mod git;
+mod github;
+
+pub use github::SyncMode;
 
 pub struct SyncHandler {
-    pub repo: Repo,
+    repo: Repo,
     github: GitHubApi,
     database: Database,
     log_messages: Mutex<Vec<String>>,
@@ -168,6 +170,14 @@ impl SyncHandler {
     ) -> anyhow::Result<Option<NaiveDateTime>> {
         self.database.get_last_issue_event_timestamp(repo).await
     }
+
+    pub fn update_repository(&self) -> anyhow::Result<()> {
+        self.repo.update()
+    }
+}
+
+pub fn multi_progress_bar() -> &'static MultiProgress {
+    shared_multi_progress_bar()
 }
 
 /// Private functions and helper methods for Analyze struct
@@ -282,7 +292,7 @@ impl SyncHandler {
                     let file_activities: Vec<FileActivity> = files
                         .iter()
                         .map(|file| FileActivity {
-                            repository: self.repo.repository_identifier.clone(),
+                            repository: self.repo.repository_identifier().to_owned(),
                             pr: pr.pr_number,
                             file_path: file.clone(),
                             user_id: pr.author_id,

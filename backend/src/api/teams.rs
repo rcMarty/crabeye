@@ -1,5 +1,4 @@
-use crate::api::app_state::AppState;
-use crate::api::ApiError;
+use crate::api::{ApiError, AppState};
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
 use axum::{
     debug_handler,

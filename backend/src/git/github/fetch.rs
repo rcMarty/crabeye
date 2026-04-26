@@ -2,7 +2,7 @@ use super::rate_limit::retry_on_rate_limit;
 use super::{GitHubApi, SyncMode};
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
 use crate::db::model::{team_member, BackfillRecord};
-use crate::misc::with_progress_bar_async;
+use crate::progress::with_progress_bar_async;
 use anyhow::Context;
 use indicatif::MultiProgress;
 use octocrab::models::IssueState;

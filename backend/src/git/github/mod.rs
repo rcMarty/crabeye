@@ -11,7 +11,7 @@ use octocrab::{params, Octocrab};
 use secrecy::SecretString;
 use std::io::Write;
 
-pub struct GitHubApi {
+pub(crate) struct GitHubApi {
     repository_identifier: String,
     owner: String,
     repository: String,
@@ -23,7 +23,7 @@ pub struct GitHubApi {
 impl GitHubApi {
     /// Create a new GitHubApi instance
     /// * token - GitHub personal access token
-    pub fn new(
+    pub(crate) fn new(
         repository_identifier: String,
         owner: String,
         repository: String,

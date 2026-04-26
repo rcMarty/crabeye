@@ -1,26 +1,18 @@
-pub mod api;
-pub mod commands;
-pub mod config;
-pub mod db;
-pub mod git;
-mod misc;
-pub mod monitoring;
+mod commands;
+mod config;
 
-use crate::api::app_state::AppState;
 use crate::commands::{Cli, Commands};
 use crate::config::Config;
-use crate::db::Database;
-use crate::git::SyncHandler;
-use crate::monitoring::state_tracker::StateMonitor;
 use aide::axum::ApiRouter;
 use axum::Extension;
 use clap::Parser;
-use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::LevelFilter;
+use crabeye::api::{api_docs, docs_routes, issues_routes, pr_routes, teams_routes, AppState};
+use crabeye::db::Database;
+use crabeye::git::{multi_progress_bar, SyncHandler, SyncMode};
+use crabeye::monitoring::StateMonitor;
 use std::sync::Arc;
-
-lazy_static::lazy_static! {static ref MULTI_PROGRESS_BAR: MultiProgress = MultiProgress::new();}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
         .filter_level(config.log_level.parse().unwrap_or(LevelFilter::Info))
         .build();
 
-    LogWrapper::new(MULTI_PROGRESS_BAR.clone(), logger).try_init()?;
+    LogWrapper::new(multi_progress_bar().clone(), logger).try_init()?;
 
     log::info!("Hello, world!");
     log::debug!("Config is: {:#?}", config);
@@ -44,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
             let handler =
                 SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
 
-            let sync = sync.unwrap_or(git::github::SyncMode::Last(10));
+            let sync = sync.unwrap_or(SyncMode::Last(10));
             if full_history.unwrap_or(false) {
                 log::info!("Syncing with full history. This will take much longer but will give you more data for analysis.");
                 handler.sync_with_full_info(sync).await?;
@@ -77,12 +69,12 @@ async fn main() -> anyhow::Result<()> {
                 .allow_headers(tower_http::cors::Any);
 
             let router = ApiRouter::new()
-                .nest_api_service("/api/pr", api::review::pr_routes(state.clone()))
-                .nest_api_service("/api/issue", api::issues::issues_routes(state.clone()))
-                .nest_api_service("/api/teams", api::teams::teams_routes(state.clone()))
-                .nest_api_service("/docs", api::docs::docs_routes(state.clone()))
+                .nest_api_service("/api/pr", pr_routes(state.clone()))
+                .nest_api_service("/api/issue", issues_routes(state.clone()))
+                .nest_api_service("/api/teams", teams_routes(state.clone()))
+                .nest_api_service("/docs", docs_routes(state.clone()))
                 .route("/health", axum::routing::get(|| async { "OK" }))
-                .finish_api_with(&mut api, api::docs::api_docs)
+                .finish_api_with(&mut api, api_docs)
                 .layer(cors_layer)
                 .layer(Extension(Arc::new(api)))
                 .with_state(state);

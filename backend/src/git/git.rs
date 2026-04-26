@@ -5,13 +5,13 @@ use std::collections::HashSet;
 use std::fmt::format;
 use std::path::Path;
 
-pub struct Repo {
-    pub repository_identifier: String,
+pub(crate) struct Repo {
+    repository_identifier: String,
     repository: Repository,
 }
 
 impl Repo {
-    pub fn init(
+    pub(crate) fn init(
         repository_identifier: String,
         repository_url: &str,
         path: &Path,
@@ -72,7 +72,7 @@ impl Repo {
         })
     }
 
-    pub fn update(&self) -> anyhow::Result<()> {
+    pub(crate) fn update(&self) -> anyhow::Result<()> {
         let mut remote = self
             .repository
             .find_remote("origin")
@@ -83,7 +83,7 @@ impl Repo {
         Ok(())
     }
 
-    pub fn modified_files(&self, commit_id: Oid) -> anyhow::Result<Option<HashSet<String>>> {
+    pub(crate) fn modified_files(&self, commit_id: Oid) -> anyhow::Result<Option<HashSet<String>>> {
         let Ok(merge_commit) = self.repository.find_commit(commit_id) else {
             log::warn!("Cannot find commit {}", commit_id);
             return Ok(None);
@@ -113,5 +113,9 @@ impl Repo {
             }
         }
         Ok(Some(files))
+    }
+
+    pub(crate) fn repository_identifier(&self) -> &str {
+        self.repository_identifier.as_str()
     }
 }
