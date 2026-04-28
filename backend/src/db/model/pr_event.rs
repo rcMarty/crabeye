@@ -39,6 +39,12 @@ impl IssueLike for PrEvent {
     fn is_pr(&self) -> bool {
         true
     }
+    fn events_history_mut(&mut self) -> &mut Option<Vec<IssueEvent>> {
+        &mut self.events_history
+    }
+    fn labels_history_mut(&mut self) -> &mut Option<Vec<IssueLabel>> {
+        &mut self.labels_history
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

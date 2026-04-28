@@ -250,19 +250,18 @@ impl SyncHandler {
         );
 
         timestamp_start = Utc::now();
-        // process PRs and its files and contributors
+        // Collect all file activities up-front so we can issue one bulk insert per
+        // table (PRs + file_activity) instead of two queries per PR.
+        let all_file_activities: Mutex<Vec<FileActivity>> = Mutex::new(Vec::new());
+
         with_progress_bar_async(
             prs.len(),
-            Some("Processing and inserting prs".parse()?),
+            Some("Processing prs and computing file activity".parse()?),
             async |bar_opt, _multi: &MultiProgress| {
                 let bar = bar_opt.unwrap();
                 for pr in prs.iter() {
                     bar.inc(1);
                     bar.set_message(format!("Processing PR #{}", pr.pr_number));
-                    log::debug!("{}", "_".repeat(69));
-                    if let Err(res) = self.database.insert_pr_event(pr).await {
-                        log::error!("Error when inserting pr event to database: {:?}", res);
-                    }
 
                     let sha = match &pr.state {
                         PullRequestStatus::Merged { merge_sha, time: _ } => merge_sha,
@@ -289,30 +288,52 @@ impl SyncHandler {
                         }
                     };
 
-                    let file_activities: Vec<FileActivity> = files
-                        .iter()
-                        .map(|file| FileActivity {
-                            repository: self.repo.repository_identifier().to_owned(),
-                            pr: pr.pr_number,
-                            file_path: file.clone(),
-                            user_id: pr.author_id,
-                            timestamp: pr.get_edited_at(),
-                        })
-                        .collect();
-                    if let Err(res) = self.database.insert_file_activities(&file_activities).await {
-                        log::error!("Error: {:?}", res);
-                    }
+                    let mut buf = all_file_activities.lock().unwrap();
+                    buf.extend(files.into_iter().map(|file| FileActivity {
+                        repository: self.repo.repository_identifier().to_owned(),
+                        pr: pr.pr_number,
+                        file_path: file,
+                        user_id: pr.author_id,
+                        timestamp: pr.get_edited_at(),
+                    }));
                 }
                 Ok(())
             },
         )
             .await?;
-
         self.log_duration(
             timestamp_start,
             Utc::now(),
-            "Inserting pull requests to database: ",
+            "Processing pull requests and computing file activity: ",
         );
+
+        // Bulk insert PRs (chunked internally by the database layer).
+        timestamp_start = Utc::now();
+        if let Err(res) = self.database.insert_pr_events(&prs).await {
+            log::error!("Error when bulk-inserting PR events to database: {:?}", res);
+        }
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Bulk-inserting pull requests to database: ",
+        );
+
+        // Bulk insert file activities (chunked internally by the database layer).
+        timestamp_start = Utc::now();
+        let file_activities = all_file_activities.into_inner().unwrap();
+        log::info!(
+            "Bulk-inserting {} file activity rows",
+            file_activities.len()
+        );
+        if let Err(res) = self.database.insert_file_activities(&file_activities).await {
+            log::error!("Error when bulk-inserting file activities: {:?}", res);
+        }
+        self.log_duration(
+            timestamp_start,
+            Utc::now(),
+            "Bulk-inserting file activities to database: ",
+        );
+
         Ok(())
     }
 

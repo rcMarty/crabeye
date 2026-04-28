@@ -1,5 +1,8 @@
 use super::*;
 
+/// Default chunk size when `BULK_CHUNK_SIZE` env var is missing or invalid.
+const DEFAULT_CHUNK_SIZE: usize = 10_000;
+
 /// Insert / upsert operations for all database entities.
 impl Database {
     /// Creates a new [`Database`] instance, running migrations on startup.
@@ -15,7 +18,14 @@ impl Database {
         let pool = PgPool::connect(database_url).await?;
         sqlx::migrate!().run(&pool).await?;
 
-        Ok(Self { pool })
+        let chunk_size = std::env::var("BULK_CHUNK_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_CHUNK_SIZE);
+
+        log::info!("Database bulk chunk size: {}", chunk_size);
+
+        Ok(Self { pool, chunk_size })
     }
 
     /// Converts a [`rust_team_data::v1::TeamKind`] variant into the corresponding
@@ -46,6 +56,45 @@ impl Database {
             .filter(|item| item.has_labels_history())
             .collect()
     }
+
+    /// Deduplicates a slice of [`IssueLike`] items by `(repository, issue_number)`, keeping
+    /// the entry with the latest `edited_at` for each key and merging event/label history
+    /// from all duplicates so no timeline data is lost.
+    ///
+    /// This is required because GitHub pagination can return the same item on different pages
+    /// (e.g. when sorting by `updated_at` and an item is updated between requests).
+    /// Postgres's `INSERT … ON CONFLICT DO UPDATE` cannot touch the same row twice in one
+    /// statement, so duplicates must be collapsed beforehand.
+    fn dedup_issuelikes<T: IssueLike + Clone>(
+        events: &[T],
+        key_fn: impl Fn(&T) -> (String, i64),
+        edited_at_fn: impl Fn(&T) -> chrono::DateTime<chrono::Utc>,
+    ) -> Vec<T> {
+        use std::collections::hash_map::Entry;
+
+        let mut map: HashMap<(String, i64), T> = HashMap::with_capacity(events.len());
+        for event in events {
+            let key = key_fn(event);
+            match map.entry(key) {
+                Entry::Vacant(v) => {
+                    v.insert(event.clone());
+                }
+                Entry::Occupied(mut o) => {
+                    let existing = o.get_mut();
+                    if edited_at_fn(event) > edited_at_fn(existing) {
+                        let mut merged = event.clone();
+                        merged.merge_history_from(existing);
+                        *existing = merged;
+                    } else {
+                        existing.merge_history_from(&event.clone());
+                    }
+                }
+            }
+        }
+        map.into_values().collect()
+    }
+
+
 
     /// Upserts contributors, teams and their many-to-many relations in a single transaction.
     ///
@@ -78,21 +127,24 @@ impl Database {
             github_names.push(member.github_name.clone());
         }
 
-        // Bulk Insert Contributors
-        sqlx::query!(
-            r#"
+        // Bulk Insert Contributors (chunked to bound bind-parameter count)
+        for chunk_start in (0..ids.len()).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(ids.len());
+            sqlx::query!(
+                r#"
 INSERT INTO contributors (github_id, github_name, name)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[])
 ON CONFLICT (github_id) DO UPDATE SET
     github_name = EXCLUDED.github_name,
     name = EXCLUDED.name
         "#,
-            &ids,
-            &github_names,
-            &names
-        )
-            .execute(&mut *tx)
-            .await?;
+                &ids[chunk_start..chunk_end],
+                &github_names[chunk_start..chunk_end],
+                &names[chunk_start..chunk_end]
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
 
         let mut team_names = Vec::with_capacity(teams.len());
         let mut team_subteams = Vec::with_capacity(teams.len());
@@ -130,16 +182,19 @@ kind = EXCLUDED.kind
             member_teams.extend(member.teams.iter().map(|t| t.team.clone()));
         }
 
-        sqlx::query!(
-            r#"
+        for chunk_start in (0..member_ids.len()).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(member_ids.len());
+            sqlx::query!(
+                r#"
 INSERT INTO contributors_teams (contributor_id,team)
 SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
 "#,
-            &member_ids,
-            &member_teams,
-        )
-            .execute(&mut *tx)
-            .await?;
+                &member_ids[chunk_start..chunk_end],
+                &member_teams[chunk_start..chunk_end],
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
         Ok(())
@@ -148,7 +203,8 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
     /// Inserts contributors that do not yet exist, skipping any whose `github_id` is already present.
     ///
     /// Unlike [`upsert_team_members`], this does **not** update existing rows — it is a
-    /// conditional insert only. Runs one query per contributor (no batching).
+    /// conditional insert only. Rows are deduplicated by `github_id` and pushed in chunks of
+    /// [`CHUNK_SIZE`] using a single bulk UNNEST per chunk.
     ///
     /// # Errors
     /// Returns an error if any SQL insert fails.
@@ -156,16 +212,36 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
         &self,
         contributors: &[model::team_member::Contributor],
     ) -> Result<()> {
-        for user in contributors.iter() {
+        if contributors.is_empty() {
+            return Ok(());
+        }
+
+        // Deduplicate by github_id so a single chunk doesn't repeat the same key.
+        let unique: HashMap<i64, &model::team_member::Contributor> = contributors
+            .iter()
+            .map(|c| (c.github_id as i64, c))
+            .collect();
+
+        let mut ids: Vec<i64> = Vec::with_capacity(unique.len());
+        let mut github_names: Vec<&str> = Vec::with_capacity(unique.len());
+        let mut names: Vec<Option<&str>> = Vec::with_capacity(unique.len());
+        for (id, c) in &unique {
+            ids.push(*id);
+            github_names.push(c.github_name.as_str());
+            names.push(c.name.as_deref());
+        }
+
+        for chunk_start in (0..ids.len()).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(ids.len());
             sqlx::query!(
                 r#"
 INSERT INTO contributors (github_id, github_name, name)
-select $1,$2,$3
-where not exists (select 1 from contributors where github_id = $1);
+SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[], $3::TEXT[])
+ON CONFLICT (github_id) DO NOTHING
 "#,
-                user.github_id as i64,
-                user.github_name,
-                user.name
+                &ids[chunk_start..chunk_end],
+                &github_names[chunk_start..chunk_end] as &[&str],
+                &names[chunk_start..chunk_end] as &[Option<&str>],
             )
                 .execute(&self.pool)
                 .await?;
@@ -228,11 +304,15 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     /// # Errors
     /// Returns an error if any SQL operation or the transaction commit fails.
     pub async fn insert_pr_events(&self, events: &[PrEvent]) -> Result<()> {
-        // let events = Self::latest_pr_events(events);
         if events.is_empty() {
             return Ok(());
         }
 
+        let events = Self::dedup_issuelikes(
+            events,
+            |e| (e.repository.clone(), e.pr_number),
+            |e| e.get_edited_at(),
+        );
         let mut tx = self.pool.begin().await?;
 
         // Build column vectors directly from iterators for clarity.
@@ -246,7 +326,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
         let mut merge_shas: Vec<Option<String>> = Vec::with_capacity(count);
         let mut author_ids: Vec<i64> = Vec::with_capacity(count);
 
-        for event in events {
+        for event in &events {
             repos.push(event.repository.as_str());
             prs.push(event.pr_number);
             states.push(event.state.as_str());
@@ -256,8 +336,10 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             author_ids.push(event.author_id);
         }
 
-        sqlx::query!(
-            r#"
+        for chunk_start in (0..count).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(count);
+            sqlx::query!(
+                r#"
 INSERT INTO issues (repository, issue, is_pr, current_state, edited_at, created_at, merge_sha, contributor_id)
 SELECT repository as repository,
        issue as issue,
@@ -276,18 +358,19 @@ current_state = excluded.current_state,
     contributor_id = excluded.contributor_id
 WHERE issues.edited_at < EXCLUDED.edited_at
 "#,
-            &repos as &[&str],
-            &prs,
-            &states as &[&str],
-            &edited_ats,
-            &created_ats,
-            &merge_shas as &[Option<String>],
-            &author_ids
-        )
-            .execute(&mut *tx)
-            .await?;
+                &repos[chunk_start..chunk_end] as &[&str],
+                &prs[chunk_start..chunk_end],
+                &states[chunk_start..chunk_end] as &[&str],
+                &edited_ats[chunk_start..chunk_end],
+                &created_ats[chunk_start..chunk_end],
+                &merge_shas[chunk_start..chunk_end] as &[Option<String>],
+                &author_ids[chunk_start..chunk_end]
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
 
-        self.insert_issuelike_history(events, &mut tx).await?;
+        self.insert_issuelike_history(&events, &mut tx).await?;
         tx.commit().await?;
 
         Ok(())
@@ -343,21 +426,24 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             timestamps.push(activity.timestamp.naive_utc());
         }
 
-        sqlx::query!(
-            r#"
+        for chunk_start in (0..count).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(count);
+            sqlx::query!(
+                r#"
 INSERT INTO file_activity(repository, issue, file_path, contributor_id, timestamp)
 SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::BIGINT[], $5::TIMESTAMP[])
 as t(repository, pr, file_path, user_login, timestamp)
 ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
                "#,
-            &repositories as &[&str],
-            &prs,
-            &file_paths as &[&str],
-            &user_ids,
-            &timestamps
-        )
-            .execute(&self.pool)
-            .await?;
+                &repositories[chunk_start..chunk_end] as &[&str],
+                &prs[chunk_start..chunk_end],
+                &file_paths[chunk_start..chunk_end] as &[&str],
+                &user_ids[chunk_start..chunk_end],
+                &timestamps[chunk_start..chunk_end]
+            )
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -378,6 +464,11 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             return Ok(());
         }
 
+        let events = Self::dedup_issuelikes(
+            events,
+            |e| (e.repository.clone(), e.issue_number),
+            |e| e.get_edited_at(),
+        );
         let mut tx: sqlx::Transaction<sqlx::Postgres> = self.pool.begin().await?;
         let count = events.len();
 
@@ -389,7 +480,7 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
         let mut edited_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
         let mut created_ats: Vec<chrono::NaiveDateTime> = Vec::with_capacity(count);
 
-        for event in events {
+        for event in &events {
             repos.push(&event.repository);
             issues.push(event.issue_number);
             author_ids.push(event.author_id);
@@ -398,8 +489,10 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             current_states.push(event.status.as_str());
         }
 
-        sqlx::query!(
-            r#"
+        for chunk_start in (0..count).step_by(self.chunk_size) {
+            let chunk_end = (chunk_start + self.chunk_size).min(count);
+            sqlx::query!(
+                r#"
 INSERT INTO issues (repository, issue, contributor_id, current_state, edited_at, created_at, is_pr)
 SELECT
     t.repo,
@@ -424,17 +517,18 @@ ON CONFLICT (repository, issue) DO UPDATE SET
 WHERE issues.edited_at < EXCLUDED.edited_at
 
         "#,
-            &repos as &[&str],
-            &issues,
-            &author_ids,
-            &current_states as &[&str],
-            &edited_ats,
-            &created_ats
-        )
-            .execute(&mut *tx)
-            .await?;
+                &repos[chunk_start..chunk_end] as &[&str],
+                &issues[chunk_start..chunk_end],
+                &author_ids[chunk_start..chunk_end],
+                &current_states[chunk_start..chunk_end] as &[&str],
+                &edited_ats[chunk_start..chunk_end],
+                &created_ats[chunk_start..chunk_end]
+            )
+                .execute(&mut *tx)
+                .await?;
+        }
 
-        self.insert_issuelike_history(events, &mut tx).await?;
+        self.insert_issuelike_history(&events, &mut tx).await?;
         tx.commit().await?;
 
         Ok(())
@@ -543,8 +637,11 @@ WHERE issues.edited_at < EXCLUDED.edited_at
                 "Issues, labels, timestamps and actions must have the same length"
             );
 
-            sqlx::query!(
-                r#"
+            let total = repos.len();
+            for chunk_start in (0..total).step_by(self.chunk_size) {
+                let chunk_end = (chunk_start + self.chunk_size).min(total);
+                sqlx::query!(
+                    r#"
 INSERT INTO issue_labels_history (repository,issue, label,timestamp, action,is_pr)
 SELECT
     t.repository,
@@ -557,15 +654,16 @@ FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $
      as t(repository, issue, label, timestamp, action, is_pr)
 ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
 "#,
-                &repos as &[&str],
-                &issues,
-                &labels as &[&str],
-                &timestamps,
-                &actions as &[&str],
-                &is_prs,
-            )
-                .execute(&mut **tx)
-                .await?;
+                    &repos[chunk_start..chunk_end] as &[&str],
+                    &issues[chunk_start..chunk_end],
+                    &labels[chunk_start..chunk_end] as &[&str],
+                    &timestamps[chunk_start..chunk_end],
+                    &actions[chunk_start..chunk_end] as &[&str],
+                    &is_prs[chunk_start..chunk_end],
+                )
+                    .execute(&mut **tx)
+                    .await?;
+            }
         }
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -628,8 +726,11 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
                 "Repos, issues, states and timestamps must have the same length"
             );
 
-            sqlx::query!(
-                r#"
+            let total = repos.len();
+            for chunk_start in (0..total).step_by(self.chunk_size) {
+                let chunk_end = (chunk_start + self.chunk_size).min(total);
+                sqlx::query!(
+                    r#"
 INSERT INTO issue_event_history (repository, issue, event, timestamp, is_pr)
 SELECT
     t.repo,
@@ -646,14 +747,15 @@ FROM UNNEST(
 ) AS t(repo, issue, event, ts, is_pr)
 ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             "#,
-                &repos as &[&str],
-                &issues,
-                &states as &[&str],
-                &timestamps,
-                &is_prs,
-            )
-                .execute(&mut **tx)
-                .await?;
+                    &repos[chunk_start..chunk_end] as &[&str],
+                    &issues[chunk_start..chunk_end],
+                    &states[chunk_start..chunk_end] as &[&str],
+                    &timestamps[chunk_start..chunk_end],
+                    &is_prs[chunk_start..chunk_end],
+                )
+                    .execute(&mut **tx)
+                    .await?;
+            }
         }
 
         Ok(())

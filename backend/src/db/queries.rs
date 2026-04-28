@@ -21,15 +21,25 @@ impl Database {
         let timestamp_start = timestamp_end - chrono::Duration::days(last_n_days.unwrap_or(7));
         log::debug!("timestamp_ start {} end {}", timestamp_start, timestamp_end);
 
-        //TODO recursivelly find people who are in some type of "global" team like all 
-
+        // Recursively expand `team_name` through `teams.subteam_of` so that umbrella
+        // teams (which often have no direct members) still match every contributor
+        // belonging to any descendant team.
         let entries = sqlx::query_as::<_, (String, i64)>(
             r#"
+WITH RECURSIVE team_tree AS (
+    SELECT team
+    FROM teams
+    WHERE team = $4
+    UNION ALL
+    SELECT t.team
+    FROM teams t
+    JOIN team_tree tt ON t.subteam_of = tt.team
+)
 SELECT fa.file_path, count(*) as editions
 FROM file_activity fa
 JOIN contributors_teams ct
   ON ct.contributor_id = fa.contributor_id
- AND ct.team = $4
+ AND ct.team IN (SELECT team FROM team_tree)
 WHERE fa.repository = $1
   AND fa.timestamp BETWEEN $2 AND $3
 GROUP BY fa.file_path
@@ -310,8 +320,10 @@ WHERE ls.event = 'closed'
             }
 
             // ── Open (no close/merge event yet, or most recent was reopened) ─────────────
-            // Uses event history for historical accuracy.  PRs with no close/merge/reopen
-            // events up to T that were created before T are counted as open.
+            // Uses event history for historical accuracy.  Relies on the always-present
+            // `created` event in `issue_event_history` instead of joining `issues.created_at`.
+            // A PR is open at T iff its most recent state-change event up to T is
+            // `created` or `reopened`.
             PullRequestStatusRequest::Open => {
                 sqlx::query_as::<_, (i64,)>(
                     r#"
@@ -320,23 +332,13 @@ WITH latest_event AS (
     FROM issue_event_history
     WHERE repository = $1
       AND is_pr      = true
-      AND event     IN ('closed', 'merged', 'reopened')
+      AND event     IN ('created', 'closed', 'merged', 'reopened')
       AND timestamp <= $2
     ORDER BY issue, timestamp DESC
 )
-SELECT COUNT(i.issue)
-FROM issues i
-LEFT JOIN latest_event le ON le.issue = i.issue
-WHERE i.repository = $1
-  AND i.is_pr      = true
-  AND i.created_at <= $2
-  AND (
-    -- most recent event up to T is 'reopened' → PR is open
-    le.event = 'reopened'
-    OR
-    -- no close/merge/reopen events up to T → PR was never closed, so it's open
-    le.issue IS NULL
-  )
+SELECT COUNT(*)
+FROM latest_event le
+WHERE le.event IN ('created', 'reopened')
                     "#,
                 )
                     .bind(repository)
@@ -389,14 +391,10 @@ WHERE i.repository = $1
                     r#"
 WITH
 all_transitions AS (
-    SELECT issue, created_at AS timestamp, 'created' AS event_type
-    FROM issues
-    WHERE repository = $1 AND is_pr = true
-    UNION ALL
     SELECT issue, timestamp, event AS event_type
     FROM issue_event_history
     WHERE repository = $1 AND is_pr = true
-      AND event IN ('closed', 'merged', 'reopened')
+      AND event IN ('created', 'closed', 'merged', 'reopened')
 ),
 ordered_transitions AS (
     SELECT issue, timestamp, event_type,
@@ -588,14 +586,10 @@ ORDER BY ds.day
                     r#"
 WITH
 all_transitions AS (
-    SELECT issue, created_at AS timestamp, 'created' AS event_type
-    FROM issues
-    WHERE repository = $1 AND is_pr = true
-    UNION ALL
     SELECT issue, timestamp, event AS event_type
     FROM issue_event_history
     WHERE repository = $1 AND is_pr = true
-      AND event IN ('closed', 'merged', 'reopened')
+      AND event IN ('created', 'closed', 'merged', 'reopened')
 ),
 ordered_transitions AS (
     SELECT issue, timestamp, event_type,

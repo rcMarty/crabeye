@@ -220,7 +220,7 @@ impl GitHubApi {
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
-                        pr if pr.created_at.unwrap_or(pr.updated_at.unwrap()).naive_utc()
+                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
                             {
                                 log::info!(

@@ -21,4 +21,7 @@ mod queries;
 #[derive(Debug, Clone)]
 pub struct Database {
     pool: Pool<Postgres>,
+    /// Maximum number of rows sent per bulk INSERT/UPSERT statement.
+    /// Read from the `BULK_CHUNK_SIZE` environment variable (defaults to 10 000).
+    chunk_size: usize,
 }

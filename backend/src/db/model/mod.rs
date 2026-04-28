@@ -16,12 +16,35 @@ pub trait IssueLike {
     fn author_id(&self) -> i64;
     fn is_pr(&self) -> bool;
 
+    /// Mutable access to event history. Used by deduplication merging.
+    fn events_history_mut(&mut self) -> &mut Option<Vec<IssueEvent>>;
+    /// Mutable access to label history. Used by deduplication merging.
+    fn labels_history_mut(&mut self) -> &mut Option<Vec<IssueLabel>>;
+
     fn has_events_history(&self) -> bool {
         self.events_history().is_some()
     }
 
     fn has_labels_history(&self) -> bool {
         self.labels_history().is_some()
+    }
+
+    /// Merges event/label history from `source` into `self`, combining both
+    /// vectors when both sides have history and taking the other's when one is `None`.
+    fn merge_history_from(&mut self, source: &Self)
+    where
+        Self: Sized,
+    {
+        match (self.events_history_mut(), source.events_history()) {
+            (target @ None, Some(src)) => *target = Some(src.clone()),
+            (Some(tgt), Some(src)) => tgt.extend(src.iter().cloned()),
+            _ => {}
+        }
+        match (self.labels_history_mut(), source.labels_history()) {
+            (target @ None, Some(src)) => *target = Some(src.clone()),
+            (Some(tgt), Some(src)) => tgt.extend(src.iter().cloned()),
+            _ => {}
+        }
     }
 }
 
@@ -43,6 +66,12 @@ impl<T: IssueLike> IssueLike for &T {
     }
     fn is_pr(&self) -> bool {
         (**self).is_pr()
+    }
+    fn events_history_mut(&mut self) -> &mut Option<Vec<IssueEvent>> {
+        panic!("cannot mutably access history through a shared reference")
+    }
+    fn labels_history_mut(&mut self) -> &mut Option<Vec<IssueLabel>> {
+        panic!("cannot mutably access history through a shared reference")
     }
 }
 
@@ -75,6 +104,12 @@ impl IssueLike for BackfillRecord {
     }
     fn is_pr(&self) -> bool {
         self.is_pr
+    }
+    fn events_history_mut(&mut self) -> &mut Option<Vec<IssueEvent>> {
+        &mut self.states_history
+    }
+    fn labels_history_mut(&mut self) -> &mut Option<Vec<IssueLabel>> {
+        &mut self.labels_history
     }
 }
 
