@@ -15,6 +15,14 @@ pub trait IssueLike {
     fn issue_number(&self) -> i64;
     fn author_id(&self) -> i64;
     fn is_pr(&self) -> bool;
+
+    fn has_events_history(&self) -> bool {
+        self.events_history().is_some()
+    }
+
+    fn has_labels_history(&self) -> bool {
+        self.labels_history().is_some()
+    }
 }
 
 impl<T: IssueLike> IssueLike for &T {

@@ -31,6 +31,22 @@ impl Database {
         }
     }
 
+    /// Returns only items that carry event history.
+    fn collect_events_history<T: IssueLike>(items: &[T]) -> Vec<&T> {
+        items
+            .iter()
+            .filter(|item| item.has_events_history())
+            .collect()
+    }
+
+    /// Returns only items that carry label history.
+    fn collect_labels_history<T: IssueLike>(items: &[T]) -> Vec<&T> {
+        items
+            .iter()
+            .filter(|item| item.has_labels_history())
+            .collect()
+    }
+
     /// Upserts contributors, teams and their many-to-many relations in a single transaction.
     ///
     /// The function deduplicates contributors by `github_id` before inserting, so duplicate
@@ -157,12 +173,13 @@ where not exists (select 1 from contributors where github_id = $1);
         Ok(())
     }
 
-    /// Upserts a single [`PrEvent`] into the `issues` table and, if history is present,
-    /// also inserts its event and label history rows in the same transaction.
+    /// Upserts a single [`PrEvent`] into the `issues` table and, if any history is present,
+    /// also inserts its event and/or label history rows in the same transaction.
     ///
     /// The `issues` row is only updated when the incoming `edited_at` is newer than what
-    /// is already stored (optimistic upsert). The `created_at` is set on first insert only. If either `events_history` or `labels_history`
-    /// is `None`, history insertion is skipped and a warning is logged.
+    /// is already stored (optimistic upsert). The `created_at` is set on first insert only.
+    /// Event and label history are inserted independently; if either one is missing it is
+    /// skipped and a warning is logged.
     ///
     /// # Errors
     /// Returns an error if any SQL operation or the transaction commit fails.
@@ -191,74 +208,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             .execute(&mut *tx)
             .await?;
 
-        // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // insert to issue_event_history
-
-        // Check if i must insert history
-        if event.events_history.is_none() || event.labels_history.is_none() {
-            log::warn!("Event for PR #{} is missing states_history or labels_history. Skipping history insertion for this event.", event.pr_number);
-            tx.commit().await?;
-            return Ok(());
-        }
-
-        let states_history = event.events_history.as_ref().unwrap();
-
-        let history_events: Vec<&str> = states_history.iter().map(|s| s.event.as_str()).collect();
-        let history_timestamps: Vec<_> = states_history.iter().map(|s| s.timestamp).collect();
-
-        // V SQL použijeme repository a issue jako konstanty ($1, $2) a rozbalíme jen zbytek
-        sqlx::query!(
-            r#"
-INSERT INTO issue_event_history (repository, issue, is_pr, event, timestamp)
-SELECT
-    $1,        -- repository (konstanta)
-    $2,        -- issue (konstanta)
-    true,      -- is_pr
-    t.event,   -- z UNNEST
-    t.timestamp -- z UNNEST
-FROM UNNEST($3::TEXT[], $4::TIMESTAMP[])
-    as t(event, timestamp)
-ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
-            "#,
-            event.repository,
-            event.pr_number,
-            &history_events as &[&str],
-            &history_timestamps
-        )
-            .execute(&mut *tx)
-            .await?;
-
-        // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // 4. Insert do ISSUE_LABEL_HISTORY
-
-        let labels_history = event.labels_history.as_ref().unwrap();
-
-        let history_labels: Vec<&str> = labels_history.iter().map(|l| l.label.as_str()).collect();
-        let history_timestamps: Vec<_> = labels_history.iter().map(|l| l.timestamp).collect();
-        let history_actions: Vec<&str> = labels_history.iter().map(|l| l.action.as_str()).collect();
-
-        // Opět repository a issue jako konstanty
-        sqlx::query!(
-            r#"
-INSERT INTO issue_labels_history (repository, issue, label, timestamp, action, is_pr)
-SELECT
-    $1,
-    $2,
-    t.label,
-    t.timestamp,
-    t.action,
-    true -- is_pr hardcoded
-FROM UNNEST($3::TEXT[], $4::TIMESTAMP[], $5::TEXT[])
-    as t(label, timestamp, action)
-ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
-            "#,
-            event.repository,
-            event.pr_number,
-            &history_labels as &[&str],
-            &history_timestamps,
-            &history_actions as &[&str]
-        )
-            .execute(&mut *tx)
+        self.insert_issuelike_history(std::slice::from_ref(event), &mut tx)
             .await?;
 
         tx.commit().await?;
@@ -269,9 +219,9 @@ ON CONFLICT (repository, issue, timestamp, label) DO NOTHING
     /// Bulk-upserts a slice of [`PrEvent`]s into the `issues` table using a single UNNEST query.
     ///
     /// Each row is only updated when the incoming `edited_at` is newer than the stored one.
-    /// After the bulk upsert, if **all** events carry both `events_history` and `labels_history`,
-    /// their history rows are inserted via [`insert_issues_history`]. Otherwise history insertion
-    /// is silently skipped for the whole batch.
+    /// After the bulk upsert, event and label history are inserted independently for all
+    /// events that carry the corresponding history; incomplete events are skipped per section
+    /// with a warning.
     ///
     /// Returns early (no-op) when the slice is empty.
     ///
@@ -337,11 +287,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             .execute(&mut *tx)
             .await?;
 
-        if events.iter().all(|event| event.events_history.is_some())
-            || events.iter().all(|event| event.labels_history.is_some())
-        {
-            self.insert_issuelike_history(events, &mut tx).await?;
-        }
+        self.insert_issuelike_history(events, &mut tx).await?;
         tx.commit().await?;
 
         Ok(())
@@ -418,9 +364,10 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
     /// Bulk-upserts a slice of [`Issue`]s into the `issues` table using a single UNNEST query.
     ///
     /// Each row is inserted with `is_pr = false`. Existing rows are only updated when the
-    /// incoming `edited_at` is newer (optimistic upsert). The `created_at` is set on first insert only. If **all** events carry both
-    /// `events_history` and `labels_history`, history rows are inserted afterwards via
-    /// [`insert_issues_history`].
+    /// incoming `edited_at` is newer (optimistic upsert). The `created_at` is set on first
+    /// insert only. Event and label history are inserted afterwards independently for issues
+    /// that carry the corresponding history; incomplete issues are skipped per section with a
+    /// warning.
     ///
     /// Returns early (no-op) when the slice is empty.
     ///
@@ -487,11 +434,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             .execute(&mut *tx)
             .await?;
 
-        if events.iter().all(|event| event.events_history.is_some())
-            || events.iter().all(|event| event.labels_history.is_some())
-        {
-            self.insert_issuelike_history(events, &mut tx).await?;
-        }
+        self.insert_issuelike_history(events, &mut tx).await?;
         tx.commit().await?;
 
         Ok(())
@@ -500,8 +443,8 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     /// Inserts event and label history for a slice of any [`IssueLike`] items.
     ///
     /// If some items are missing `labels_history` or `events_history`, only the items that
-    /// have **both** are inserted and a warning is logged. If all items have complete history
-    /// the full slice is passed directly to [`insert_issues_history`].
+    /// have the corresponding history are inserted into that specific history table and a
+    /// warning is logged.
     ///
     /// The operation runs inside a single transaction that is committed on success.
     ///
@@ -513,23 +456,6 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     {
         let mut tx = self.pool.begin().await?;
 
-        let check = history.iter().all(|issue| issue.labels_history().is_some())
-            && history.iter().all(|issue| issue.events_history().is_some());
-        //TODO those checks are unnecessary
-        if !check {
-            let ok_history = history
-                .iter()
-                .filter(|&issue| {
-                    issue.labels_history().is_some() || issue.events_history().is_some()
-                })
-                .collect::<Vec<_>>();
-            log::warn!("Some events are missing labels_history or states_history. Only inserting events with complete history. Total: {}, with complete history: {}", history.len(), ok_history.len());
-            self.insert_issuelike_history(ok_history.as_ref(), &mut tx)
-                .await?;
-            tx.commit().await?;
-            return Ok(());
-        }
-
         self.insert_issuelike_history(history, &mut tx).await?;
         tx.commit().await?;
         Ok(())
@@ -539,9 +465,9 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     /// [`IssueLike`] items into `issue_labels_history` and `issue_event_history` respectively,
     /// using the provided open transaction.
     ///
-    /// Both sections are guarded by an `all()` check — if any item is missing the corresponding
-    /// history, that section is skipped and a warning is logged. Duplicate rows are ignored
-    /// via `ON CONFLICT DO NOTHING`.
+    /// Event and label history are handled independently: each section filters the incoming
+    /// slice to items that provide the corresponding history. Duplicate rows are ignored via
+    /// `ON CONFLICT DO NOTHING`.
     ///
     /// This function does **not** commit the transaction; the caller is responsible for that.
     ///
@@ -554,8 +480,16 @@ WHERE issues.edited_at < EXCLUDED.edited_at
     ) -> Result<()> {
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_labels_history
-        if events.iter().all(|e| e.labels_history().is_some()) {
-            let total_labels: usize = events
+        let labels_events = Self::collect_labels_history(events);
+        if labels_events.len() != events.len() {
+            log::warn!(
+                "Some events are missing labels_history. Only inserting labels history for events where it is present. Total: {}, with labels history: {}",
+                events.len(),
+                labels_events.len()
+            );
+        }
+        if !labels_events.is_empty() {
+            let total_labels: usize = labels_events
                 .iter()
                 .map(|e| {
                     e.labels_history()
@@ -571,7 +505,7 @@ WHERE issues.edited_at < EXCLUDED.edited_at
             let mut actions: Vec<&str> = Vec::with_capacity(total_labels);
             let mut is_prs: Vec<bool> = Vec::with_capacity(total_labels);
 
-            for e in events {
+            for e in labels_events {
                 let repo_str = e.repository().as_str();
                 let issue_num = e.issue_number();
 
@@ -632,15 +566,21 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
             )
                 .execute(&mut **tx)
                 .await?;
-        } else {
-            log::warn!("Some events are missing labels_history. Skipping labels history insertion for these events.");
         }
 
         // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // section for issue_state_history
 
-        if events.iter().all(|e| e.events_history().is_some()) {
-            let total_states: usize = events
+        let state_events = Self::collect_events_history(events);
+        if state_events.len() != events.len() {
+            log::warn!(
+                "Some events are missing states_history. Only inserting states history for events where it is present. Total: {}, with states history: {}",
+                events.len(),
+                state_events.len()
+            );
+        }
+        if !state_events.is_empty() {
+            let total_states: usize = state_events
                 .iter()
                 .map(|e| {
                     e.events_history()
@@ -656,7 +596,7 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
             let mut timestamps: Vec<NaiveDateTime> = Vec::with_capacity(total_states);
             let mut is_prs: Vec<bool> = Vec::with_capacity(total_states);
 
-            for e in events {
+            for e in state_events {
                 let repo_str = e.repository().as_str();
                 let issue_num = e.issue_number();
 
@@ -714,8 +654,6 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
             )
                 .execute(&mut **tx)
                 .await?;
-        } else {
-            log::warn!("Some events are missing states_history. Skipping states history insertion for these events.");
         }
 
         Ok(())
