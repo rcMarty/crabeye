@@ -46,12 +46,12 @@ GROUP BY fa.file_path
 ORDER BY editions DESC
         "#,
         )
-            .bind(repository)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(team_name)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(team_name)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(entries.into_iter().collect())
     }
@@ -163,11 +163,11 @@ WHERE hist.repository = $1 and hist.issue = $2 and hist.timestamp <= $3 and hist
 ORDER BY timestamp DESC
 "#,
         )
-            .bind(repository)
-            .bind(pr)
-            .bind(timestamp_start)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(pr)
+        .bind(timestamp_start)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut pr = match sqlx::query_as::<_, PrEvent>(
             r#"
@@ -191,7 +191,6 @@ WHERE repository = $1 and issue = $2 and is_pr = true
         log::debug!("return value from get pr state at: \n{:?}", pr.clone());
         Ok(Some(pr))
     }
-
 
     /// Returns the count of PRs that were in the given state on the given day.
     ///
@@ -224,7 +223,7 @@ WHERE repository = $1 and issue = $2 and is_pr = true
     ) -> Result<i64> {
         let ts = timestamp.and_hms_opt(0, 0, 0).unwrap();
 
-        let (count, ): (i64,) = match &state {
+        let (count,): (i64,) = match &state {
             // ── Label-based waiting states ──────────────────────────────────────────────────
             PullRequestStatusRequest::WaitingForReview
             | PullRequestStatusRequest::WaitingForBors
@@ -260,11 +259,11 @@ WHERE ll.action = 'ADDED'
   AND (ls.issue IS NULL OR ls.event = 'reopened')
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts)
-                    .bind(&label)
-                    .fetch_one(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts)
+                .bind(&label)
+                .fetch_one(&self.pool)
+                .await?
             }
 
             // ── Merged ──────────────────────────────────────────────────────────────────────
@@ -280,10 +279,10 @@ WHERE repository = $1
   AND timestamp <= $2
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts)
-                    .fetch_one(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
             }
 
             // ── Closed (not merged, not later reopened) ──────────────────────────────────
@@ -313,10 +312,10 @@ WHERE ls.event = 'closed'
   AND NOT EXISTS (SELECT 1 FROM merged_issues mi WHERE mi.issue = ls.issue)
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts)
-                    .fetch_one(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
             }
 
             // ── Open (no close/merge event yet, or most recent was reopened) ─────────────
@@ -341,10 +340,10 @@ FROM latest_event le
 WHERE le.event IN ('created', 'reopened')
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts)
-                    .fetch_one(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts)
+                .fetch_one(&self.pool)
+                .await?
             }
         };
 
@@ -461,12 +460,12 @@ LEFT JOIN daily_deltas dd ON dd.event_date = ds.day
 ORDER BY ds.day
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts_start)
-                    .bind(ts_end)
-                    .bind(&label)
-                    .fetch_all(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts_start)
+                .bind(ts_end)
+                .bind(&label)
+                .fetch_all(&self.pool)
+                .await?
             }
 
             // ── Merged ──────────────────────────────────────────────────────────
@@ -507,11 +506,11 @@ LEFT JOIN daily_merges dm ON dm.merged_date = ds.day
 ORDER BY ds.day
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts_start)
-                    .bind(ts_end)
-                    .fetch_all(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts_start)
+                .bind(ts_end)
+                .fetch_all(&self.pool)
+                .await?
             }
 
             // ── Closed (not merged, not later reopened) ─────────────────────────
@@ -567,11 +566,11 @@ LEFT JOIN daily_deltas dd ON dd.event_date = ds.day
 ORDER BY ds.day
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts_start)
-                    .bind(ts_end)
-                    .fetch_all(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts_start)
+                .bind(ts_end)
+                .fetch_all(&self.pool)
+                .await?
             }
 
             // ── Open (created/reopened, not yet closed/merged) ──────────────────
@@ -632,11 +631,11 @@ LEFT JOIN daily_deltas dd ON dd.event_date = ds.day
 ORDER BY ds.day
                     "#,
                 )
-                    .bind(repository)
-                    .bind(ts_start)
-                    .bind(ts_end)
-                    .fetch_all(&self.pool)
-                    .await?
+                .bind(repository)
+                .bind(ts_start)
+                .bind(ts_end)
+                .fetch_all(&self.pool)
+                .await?
             }
         };
 
@@ -678,13 +677,13 @@ order by timestamp DESC
 LIMIT $5;
 "#,
         )
-            .bind(&ids)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(n)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(&ids)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(n)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(record)
     }
 
@@ -730,10 +729,10 @@ WHERE file_path like $1
             timestamp_end,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
 
         let entries = sqlx::query_as::<_, Contributor>(
             r#"
@@ -750,14 +749,14 @@ JOIN (
 ) fa ON fa.contributor_id = c.github_id
 "#,
         )
-            .bind(file_path)
-            .bind(timestamp_start)
-            .bind(timestamp_end)
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(file_path)
+        .bind(timestamp_start)
+        .bind(timestamp_end)
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(PaginatedResponse::new(count, pagination, entries))
     }
@@ -805,10 +804,10 @@ WHERE l.action = 'ADDED'
 "#,
             repository
         )
-            .fetch_one(&self.pool)
-            .await?
-            .count
-            .unwrap_or(0) as usize;
+        .fetch_one(&self.pool)
+        .await?
+        .count
+        .unwrap_or(0) as usize;
 
         let record = sqlx::query_as::<_, PrEvent>(
             r#"
@@ -842,11 +841,11 @@ OFFSET $2
 LIMIT $3;
         "#,
         )
-            .bind(repository)
-            .bind(offset)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(repository)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
 
         log::debug!(
             "return value from get_prs_waiting_for_review: \n{:?}",

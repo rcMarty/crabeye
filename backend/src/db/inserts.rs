@@ -94,8 +94,6 @@ impl Database {
         map.into_values().collect()
     }
 
-
-
     /// Upserts contributors, teams and their many-to-many relations in a single transaction.
     ///
     /// The function deduplicates contributors by `github_id` before inserting, so duplicate
@@ -142,8 +140,8 @@ ON CONFLICT (github_id) DO UPDATE SET
                 &github_names[chunk_start..chunk_end],
                 &names[chunk_start..chunk_end]
             )
-                .execute(&mut *tx)
-                .await?;
+            .execute(&mut *tx)
+            .await?;
         }
 
         let mut team_names = Vec::with_capacity(teams.len());
@@ -168,8 +166,8 @@ kind = EXCLUDED.kind
             &team_subteams as &[Option<String>],
             &team_kinds as &[&str]
         )
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!("DELETE FROM contributors_teams")
             .execute(&mut *tx)
@@ -192,8 +190,8 @@ SELECT * FROM UNNEST($1::BIGINT[], $2::TEXT[])
                 &member_ids[chunk_start..chunk_end],
                 &member_teams[chunk_start..chunk_end],
             )
-                .execute(&mut *tx)
-                .await?;
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
@@ -243,8 +241,8 @@ ON CONFLICT (github_id) DO NOTHING
                 &github_names[chunk_start..chunk_end] as &[&str],
                 &names[chunk_start..chunk_end] as &[Option<&str>],
             )
-                .execute(&self.pool)
-                .await?;
+            .execute(&self.pool)
+            .await?;
         }
         Ok(())
     }
@@ -397,8 +395,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
             user_id,
             activity.timestamp.naive_utc()
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -441,8 +439,8 @@ ON CONFLICT(repository, issue, timestamp, file_path) DO NOTHING
                 &user_ids[chunk_start..chunk_end],
                 &timestamps[chunk_start..chunk_end]
             )
-                .execute(&self.pool)
-                .await?;
+            .execute(&self.pool)
+            .await?;
         }
         Ok(())
     }
@@ -524,8 +522,8 @@ WHERE issues.edited_at < EXCLUDED.edited_at
                 &edited_ats[chunk_start..chunk_end],
                 &created_ats[chunk_start..chunk_end]
             )
-                .execute(&mut *tx)
-                .await?;
+            .execute(&mut *tx)
+            .await?;
         }
 
         self.insert_issuelike_history(&events, &mut tx).await?;
@@ -661,8 +659,8 @@ ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
                     &actions[chunk_start..chunk_end] as &[&str],
                     &is_prs[chunk_start..chunk_end],
                 )
-                    .execute(&mut **tx)
-                    .await?;
+                .execute(&mut **tx)
+                .await?;
             }
         }
 
@@ -753,8 +751,8 @@ ON CONFLICT (repository, issue, timestamp, event) DO NOTHING
                     &timestamps[chunk_start..chunk_end],
                     &is_prs[chunk_start..chunk_end],
                 )
-                    .execute(&mut **tx)
-                    .await?;
+                .execute(&mut **tx)
+                .await?;
             }
         }
 

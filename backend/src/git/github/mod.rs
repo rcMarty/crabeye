@@ -1,8 +1,8 @@
 #![allow(unused)]
 
-pub(crate) mod rate_limit;
 mod fetch;
 mod parse;
+pub(crate) mod rate_limit;
 
 use chrono::NaiveDateTime;
 use octocrab::issues::ListIssuesBuilder;
@@ -82,4 +82,3 @@ pub enum SyncMode {
     /// Synchronize last N pages
     Last(u32),
 }
-

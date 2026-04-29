@@ -6,12 +6,12 @@ use crate::config::Config;
 use aide::axum::ApiRouter;
 use axum::Extension;
 use clap::Parser;
-use indicatif_log_bridge::LogWrapper;
-use log::LevelFilter;
 use crabeye::api::{api_docs, docs_routes, issues_routes, pr_routes, teams_routes, AppState};
 use crabeye::db::Database;
 use crabeye::git::{multi_progress_bar, SyncHandler, SyncMode};
 use crabeye::monitoring::StateMonitor;
+use indicatif_log_bridge::LogWrapper;
+use log::LevelFilter;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -56,9 +56,16 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve => {
             // spawn the task to get new data every minute
-            let handler =
-                SyncHandler::init(config.repo_name, config.repo_owner, config.github_token, db);
-            let state_tracker = StateMonitor::new(std::time::Duration::from_secs(config.check_interval_secs));
+            let handler = SyncHandler::init(
+                config.repo_name.clone(),
+                config.repo_owner.clone(),
+                config.github_token,
+                db,
+            );
+            let state_tracker = StateMonitor::new(
+                std::time::Duration::from_secs(config.check_interval_secs),
+                chrono::Duration::days(config.lookback_period),
+            );
 
             // set up and run the API server
             let mut api = aide::openapi::OpenApi::default();
@@ -79,12 +86,13 @@ async fn main() -> anyhow::Result<()> {
                 .layer(Extension(Arc::new(api)))
                 .with_state(state);
 
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:7878").await?;
-            log::info!("serving API on URL: http://localhost:7878/docs");
+            let bind = config.server_host.clone() + ":" + config.server_port.to_string().as_str();
+            let listener = tokio::net::TcpListener::bind(bind.clone()).await?;
+            log::info!("serving API on URL: http://{}/docs", bind);
 
             // run both the state tracker and the API server
             tokio::select! {
-                _ = state_tracker.run(&handler,"rust-lang/rust") => {
+                _ = state_tracker.run(&handler,config.repo_owner, config.repo_name) => {
                     log::info!("State tracker task ended");
             }
                 res = axum::serve(listener, router) => {

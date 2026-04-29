@@ -1,9 +1,9 @@
 use crate::db::model::pr_event::PullRequestStatusRequest;
 use crate::pagination::Pagination;
 use chrono::NaiveDate;
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
-use indexmap::IndexMap;
 
 mod app_state;
 mod docs;
@@ -25,7 +25,9 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(message: impl Into<String>) -> Self {
-        ApiError { message: message.into() }
+        ApiError {
+            message: message.into(),
+        }
     }
 }
 

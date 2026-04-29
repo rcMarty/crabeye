@@ -1,5 +1,6 @@
 use super::rate_limit::retry_on_rate_limit;
 use super::GitHubApi;
+use crate::db::model::issue::IssueLabel;
 use crate::db::model::pr_event::{PrEvent, PullRequestStatus};
 use crate::db::model::team_member;
 use crate::progress::with_progress_bar_async;
@@ -8,7 +9,6 @@ use indicatif::{MultiProgress, ProgressBar};
 use octocrab::models;
 use octocrab::models::timelines::TimelineEvent;
 use octocrab::models::IssueState;
-use crate::db::model::issue::IssueLabel;
 
 /// Private fetching functions and parsing
 impl GitHubApi {
@@ -38,11 +38,11 @@ impl GitHubApi {
                 .send()
                 .await
         })
-            .await
-            .context(format!(
-                "Failed to get timeline events for PR #{} in {}/{}",
-                event_number, self.owner, self.repository
-            )) {
+        .await
+        .context(format!(
+            "Failed to get timeline events for PR #{} in {}/{}",
+            event_number, self.owner, self.repository
+        )) {
             Ok(res) => res,
             Err(err) => {
                 log::error!(
@@ -86,11 +86,11 @@ impl GitHubApi {
                     .send()
                     .await
             })
-                .await
-                .context(format!(
-                    "Failed to get timeline events for PR #{} in {}/{}",
-                    event_number, self.owner, self.repository
-                )) {
+            .await
+            .context(format!(
+                "Failed to get timeline events for PR #{} in {}/{}",
+                event_number, self.owner, self.repository
+            )) {
                 Ok(res) => res,
                 Err(err) => {
                     log::error!(
@@ -181,25 +181,21 @@ impl GitHubApi {
 
                 let (labels, events) = if with_timeline {
                     let (lab, mut event) = self.fetch_and_parse_timeline(pr.number).await;
-                    event.get_or_insert_default()
-                        .push(
-                            crate::db::model::issue::IssueEvent {
-                                event: "created".to_string(),
-                                timestamp: pr.created_at.expect("Missing created time").naive_utc(),
-                            }
-                        );
+                    event
+                        .get_or_insert_default()
+                        .push(crate::db::model::issue::IssueEvent {
+                            event: "created".to_string(),
+                            timestamp: pr.created_at.expect("Missing created time").naive_utc(),
+                        });
                     (lab, event)
                 } else {
                     let lab = Some(vec![]);
-                    let event = Some(vec![
-                        crate::db::model::issue::IssueEvent {
-                            event: "created".to_string(),
-                            timestamp: pr.created_at.expect("Missing created time").naive_utc(),
-                        }
-                    ]);
+                    let event = Some(vec![crate::db::model::issue::IssueEvent {
+                        event: "created".to_string(),
+                        timestamp: pr.created_at.expect("Missing created time").naive_utc(),
+                    }]);
                     (lab, event)
                 };
-
 
                 let parsed = PrEvent {
                     repository: self.repository_identifier.clone(),
@@ -218,9 +214,9 @@ impl GitHubApi {
                                     .expect("Missing created time"),
                                 None,
                             )
-                                .unwrap_or(PullRequestStatus::Open {
-                                    time: pr.created_at.expect("Missing created time"),
-                                })
+                            .unwrap_or(PullRequestStatus::Open {
+                                time: pr.created_at.expect("Missing created time"),
+                            })
                         }
                         (Some(IssueState::Open), _, None) => PullRequestStatus::Open {
                             time: pr.created_at.expect("Missing created time"),
@@ -252,8 +248,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 
     pub(super) async fn parse_issues(
@@ -322,8 +318,8 @@ impl GitHubApi {
             multi.remove(&inner_bar);
             Ok(())
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 
     fn get_labels(
@@ -459,4 +455,3 @@ impl GitHubApi {
         Ok(vec)
     }
 }
-

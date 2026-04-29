@@ -73,11 +73,11 @@ impl GitHubApi {
             self.issue_request(state, 1, async |req| req.send().await)
                 .await
         })
-            .await
-            .context(format!(
-                "Failed to get issues for {}/{}",
-                self.owner, self.repository
-            ))?;
+        .await
+        .context(format!(
+            "Failed to get issues for {}/{}",
+            self.owner, self.repository
+        ))?;
 
         let mut parsed_issues: Vec<crate::db::model::issue::Issue> = Vec::new();
         let mut parsed_users: Vec<team_member::Contributor> = Vec::new();
@@ -96,17 +96,15 @@ impl GitHubApi {
                                 .send()
                                 .await
                         })
-                            .await
-                    })
                         .await
-                        .context("Cannot get issues")?;
+                    })
+                    .await
+                    .context("Cannot get issues")?;
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
                         issue if issue.updated_at.naive_utc() < since => {
-                            log::info!(
-                                "No more pull requests to process, stopping at page {page}"
-                            );
+                            log::info!("No more pull requests to process, stopping at page {page}");
                             break 'pageLoop;
                         }
                         issue => {
@@ -119,7 +117,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -146,13 +144,13 @@ impl GitHubApi {
                                         .send()
                                         .await
                                 })
-                                    .await
-                            })
                                 .await
-                                .context(format!(
-                                    "Failed to get pull requests for {}/{}",
-                                    self.owner, self.repository
-                                ))?;
+                            })
+                            .await
+                            .context(format!(
+                                "Failed to get pull requests for {}/{}",
+                                self.owner, self.repository
+                            ))?;
 
                             log::debug!("Requesting {page}/{pages} page of pull requests");
                             log::debug!("Found {} pull requests", pr.items.len());
@@ -168,13 +166,13 @@ impl GitHubApi {
                                 pr,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_issues, parsed_users))
             }
         }
@@ -191,11 +189,11 @@ impl GitHubApi {
             self.pr_request(state, 1, async |req| req.send().await)
                 .await
         })
-            .await
-            .context(format!(
-                "Failed to get pull requests for {}/{}",
-                self.owner, self.repository
-            ))?;
+        .await
+        .context(format!(
+            "Failed to get pull requests for {}/{}",
+            self.owner, self.repository
+        ))?;
 
         let mut parsed_prs: Vec<PrEvent> = Vec::new();
         let mut parsed_users: Vec<team_member::Contributor> = Vec::new();
@@ -213,21 +211,19 @@ impl GitHubApi {
                                 .send()
                                 .await
                         })
-                            .await
-                    })
                         .await
-                        .context("Cannot get pull requests")?;
+                    })
+                    .await
+                    .context("Cannot get pull requests")?;
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
                         pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
                             < since =>
-                            {
-                                log::info!(
-                                "No more pull requests to process, stopping at page {page}"
-                            );
-                                break 'pageLoop;
-                            }
+                        {
+                            log::info!("No more pull requests to process, stopping at page {page}");
+                            break 'pageLoop;
+                        }
                         pr => {
                             log::debug!("Processing page {page}");
                             log::debug!(
@@ -245,7 +241,7 @@ impl GitHubApi {
                                 response,
                                 with_timeline,
                             )
-                                .await;
+                            .await;
                             page += 1;
                         }
                     }
@@ -275,21 +271,20 @@ impl GitHubApi {
                         for page in 1..=pages {
                             bar.inc(1);
                             bar.set_message(format!("Processing page {}/{}", page, pages));
-                            let pr =
-                                retry_on_rate_limit("get pull requests (last)", || async {
-                                    self.pr_request(state, page, async |req| {
-                                        req.direction(params::Direction::Descending)
-                                            .sort(pulls::Sort::Created)
-                                            .send()
-                                            .await
-                                    })
+                            let pr = retry_on_rate_limit("get pull requests (last)", || async {
+                                self.pr_request(state, page, async |req| {
+                                    req.direction(params::Direction::Descending)
+                                        .sort(pulls::Sort::Created)
+                                        .send()
                                         .await
                                 })
-                                    .await
-                                    .context(format!(
-                                        "Failed to get pull requests for {}/{}",
-                                        self.owner, self.repository
-                                    ))?;
+                                .await
+                            })
+                            .await
+                            .context(format!(
+                                "Failed to get pull requests for {}/{}",
+                                self.owner, self.repository
+                            ))?;
 
                             log::debug!("Requesting {page}/{pages} page of pull requests");
                             log::debug!("Found {} pull requests", pr.items.len());
@@ -299,19 +294,14 @@ impl GitHubApi {
                                 break;
                             }
 
-                            self.parse_prs(
-                                &mut parsed_prs,
-                                &mut parsed_users,
-                                pr,
-                                with_timeline,
-                            )
+                            self.parse_prs(&mut parsed_prs, &mut parsed_users, pr, with_timeline)
                                 .await;
                         }
                         bar.finish_with_message("Done");
                         Ok(())
                     },
                 )
-                    .await?;
+                .await?;
                 Ok((parsed_prs, parsed_users))
             }
         }
@@ -340,8 +330,7 @@ impl GitHubApi {
                 Ok(())
             },
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 }
-

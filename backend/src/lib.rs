@@ -11,4 +11,3 @@ pub mod pagination;
 
 #[cfg(feature = "git")]
 pub(crate) mod progress;
-

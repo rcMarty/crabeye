@@ -57,7 +57,11 @@ async fn issue_events(
         }
         Err(err) => {
             log::error!("Error getting issue events: {}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError::new(err.to_string()))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new(err.to_string())),
+            )
+                .into_response()
         }
     }
 }

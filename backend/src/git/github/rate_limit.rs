@@ -91,10 +91,7 @@ fn parse_reset_epoch(err: &octocrab::Error) -> Option<u64> {
 /// When retries are exhausted due to a persistent rate limit, the function
 /// returns a [`RateLimitExhausted`] error (wrapped in `anyhow`) that
 /// includes the estimated reset time so the caller can decide what to do.
-pub(crate) async fn retry_on_rate_limit<F, Fut, T>(
-    operation: &str,
-    f: F,
-) -> anyhow::Result<T>
+pub(crate) async fn retry_on_rate_limit<F, Fut, T>(operation: &str, f: F) -> anyhow::Result<T>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, octocrab::Error>>,

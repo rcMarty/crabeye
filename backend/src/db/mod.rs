@@ -1,13 +1,13 @@
 #[allow(unused)]
 pub mod model;
 
-use crate::pagination::Pagination;
 use crate::db::model::issue::{IssueEvent, IssueLabel};
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::{FileActivity, PrEvent, PullRequestStatusRequest};
 use crate::db::model::responses::TopFilesResponse;
 use crate::db::model::team_member::Contributor;
 use crate::db::model::{BackfillRecord, IssueLike};
+use crate::pagination::Pagination;
 use anyhow::Result;
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use sqlx::migrate::MigrateDatabase;

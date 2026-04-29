@@ -1,7 +1,8 @@
 use crate::api::{
-    ApiError, AppState, BuilderFileNode, DateCount, FilesModifiedByTeamParams, FilesModifiedResponse,
-    GroupingLevel, IssueStateParams, PrCountOverTimeParams, PrCountOverTimeResponse, PrCountParams,
-    PrCountResponse, PrTopFilesParams, ReviewParams, WaitingForReviewParams,
+    ApiError, AppState, BuilderFileNode, DateCount, FilesModifiedByTeamParams,
+    FilesModifiedResponse, GroupingLevel, IssueStateParams, PrCountOverTimeParams,
+    PrCountOverTimeResponse, PrCountParams, PrCountResponse, PrTopFilesParams, ReviewParams,
+    WaitingForReviewParams,
 };
 use crate::db::model::paginated_response::PaginatedResponse;
 use crate::db::model::pr_event::PrEvent;
@@ -181,24 +182,38 @@ async fn prs_in_state(
     State(app): State<AppState>,
     Query(params): Query<PrCountParams>,
 ) -> impl IntoApiResponse {
-    let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
-    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None).map(|dt| dt.date());
+    let anchor = params
+        .anchor_date
+        .unwrap_or(chrono::Utc::now().date_naive());
+    let oldest = app
+        .db
+        .get_oldest_pr_timestamp(params.repository.as_str())
+        .await
+        .unwrap_or(None)
+        .map(|dt| dt.date());
 
     match app
         .db
-        .get_pr_count_in_state(
-            params.repository.as_str(),
-            anchor,
-            params.state,
-        )
+        .get_pr_count_in_state(params.repository.as_str(), anchor, params.state)
         .await
     {
-        Ok(count) => (StatusCode::OK, Json(PrCountResponse { since: oldest, to: anchor, count })).into_response(),
+        Ok(count) => (
+            StatusCode::OK,
+            Json(PrCountResponse {
+                since: oldest,
+                to: anchor,
+                count,
+            }),
+        )
+            .into_response(),
         Err(err) => {
             log::error!("Error getting PR count in state: {}", err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new(format!("Error getting PR count in state: {}", err))),
+                Json(ApiError::new(format!(
+                    "Error getting PR count in state: {}",
+                    err
+                ))),
             )
                 .into_response()
         }
@@ -210,19 +225,21 @@ async fn prs_in_state_over_time(
     State(app): State<AppState>,
     Query(params): Query<PrCountOverTimeParams>,
 ) -> impl IntoApiResponse {
-    let anchor = params.anchor_date.unwrap_or(chrono::Utc::now().date_naive());
+    let anchor = params
+        .anchor_date
+        .unwrap_or(chrono::Utc::now().date_naive());
     let days = params.last_n_days.unwrap_or(30);
 
-    let oldest = app.db.get_oldest_pr_timestamp(params.repository.as_str()).await.unwrap_or(None).map(|dt| dt.date());
+    let oldest = app
+        .db
+        .get_oldest_pr_timestamp(params.repository.as_str())
+        .await
+        .unwrap_or(None)
+        .map(|dt| dt.date());
 
     match app
         .db
-        .get_pr_count_in_state_over_time(
-            params.repository.as_str(),
-            anchor,
-            days,
-            params.state,
-        )
+        .get_pr_count_in_state_over_time(params.repository.as_str(), anchor, days, params.state)
         .await
     {
         Ok(rows) => {
@@ -230,13 +247,24 @@ async fn prs_in_state_over_time(
                 .into_iter()
                 .map(|(date, count)| DateCount { date, count })
                 .collect();
-            (StatusCode::OK, Json(PrCountOverTimeResponse { since: oldest, to: anchor, data })).into_response()
+            (
+                StatusCode::OK,
+                Json(PrCountOverTimeResponse {
+                    since: oldest,
+                    to: anchor,
+                    data,
+                }),
+            )
+                .into_response()
         }
         Err(err) => {
             log::error!("Error getting PR count over time: {}", err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new(format!("Error getting PR count over time: {}", err))),
+                Json(ApiError::new(format!(
+                    "Error getting PR count over time: {}",
+                    err
+                ))),
             )
                 .into_response()
         }
@@ -256,10 +284,7 @@ async fn pr_history(
     {
         Ok(Some(counts)) => (StatusCode::OK, Json(counts)).into_response(),
         Ok(None) => {
-            log::warn!(
-                "History in that timestamp for PR {} not found",
-                issue
-            );
+            log::warn!("History in that timestamp for PR {} not found", issue);
             (
                 StatusCode::NOT_FOUND,
                 Json(ApiError::new(format!(
@@ -296,7 +321,11 @@ async fn waiting_for_review(
         Ok(files) => (StatusCode::OK, Json(files)).into_response(),
         Err(err) => {
             log::error!("Error getting most modified files: {}", err);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiError::new(err.to_string()))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new(err.to_string())),
+            )
+                .into_response()
         }
     }
 }
@@ -326,7 +355,10 @@ async fn files_modified_by_team(
             log::error!("Error getting teams from database: {}", err);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new(format!("Error getting teams from database: {}", err))),
+                Json(ApiError::new(format!(
+                    "Error getting teams from database: {}",
+                    err
+                ))),
             )
                 .into_response();
         }
@@ -364,7 +396,11 @@ async fn files_modified_by_team(
                     sorted_files.sort_by(|file1, count1, file2, count2| {
                         count2.cmp(count1).then_with(|| file1.cmp(file2))
                     });
-                    return (StatusCode::OK, Json(FilesModifiedResponse::List { data: sorted_files })).into_response();
+                    return (
+                        StatusCode::OK,
+                        Json(FilesModifiedResponse::List { data: sorted_files }),
+                    )
+                        .into_response();
                 }
                 GroupingLevel::GroupBy(depth_level) => depth_level as usize,
                 GroupingLevel::GroupByAll => usize::MAX,
@@ -390,13 +426,22 @@ async fn files_modified_by_team(
                 }
             }
 
-            (StatusCode::OK, Json(FilesModifiedResponse::Tree { data: root.into_response() })).into_response()
+            (
+                StatusCode::OK,
+                Json(FilesModifiedResponse::Tree {
+                    data: root.into_response(),
+                }),
+            )
+                .into_response()
         }
         Err(err) => {
             log::error!("Error getting files modified by team: {}", err);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiError::new(format!("Error getting files modified by team: {}", err))),
+                Json(ApiError::new(format!(
+                    "Error getting files modified by team: {}",
+                    err
+                ))),
             )
                 .into_response()
         }

@@ -1,12 +1,6 @@
 use crate::api::{ApiError, AppState};
 use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
-use axum::{
-    debug_handler,
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{debug_handler, extract::State, http::StatusCode, response::IntoResponse, Json};
 
 pub fn teams_routes(state: AppState) -> ApiRouter {
     ApiRouter::new()
@@ -23,9 +17,7 @@ pub fn teams_routes(state: AppState) -> ApiRouter {
 }
 
 #[debug_handler]
-async fn list_teams(
-    State(app): State<AppState>,
-) -> impl IntoApiResponse {
+async fn list_teams(State(app): State<AppState>) -> impl IntoApiResponse {
     match app.db.get_all_teams().await {
         Ok(teams) => (StatusCode::OK, Json(teams)).into_response(),
         Err(err) => {
@@ -38,4 +30,3 @@ async fn list_teams(
         }
     }
 }
-

@@ -5,14 +5,29 @@ use tokio::time;
 
 pub struct StateMonitor {
     interval: Duration,
+    /// how far back in time to look for events if database is empty
+    lookback_period: chrono::Duration,
 }
 
 impl StateMonitor {
-    pub fn new(interval: Duration) -> Self {
-        Self { interval }
+    fn repository_identifier(repository_name: String, owner: String) -> String {
+        owner + "/" + repository_name.as_str()
     }
 
-    pub async fn run(self, analyze: &SyncHandler, repo: &str) {
+    pub fn new(interval: Duration, lookback_period: chrono::Duration) -> Self {
+        Self {
+            interval,
+            lookback_period,
+        }
+    }
+
+    pub async fn run(
+        self,
+        analyze: &SyncHandler,
+        repository_owner: String,
+        repository_name: String,
+    ) {
+        let repo = Self::repository_identifier(repository_name, repository_owner.clone());
         let mut interval = time::interval(self.interval);
         loop {
             interval.tick().await;
@@ -28,11 +43,11 @@ impl StateMonitor {
             }
 
             // download form github
-            let from: NaiveDateTime = match analyze.timestamp_of_last_event(repo).await {
+            let from: NaiveDateTime = match analyze.timestamp_of_last_event(repo.as_str()).await {
                 Ok(Some(ts)) => ts,
                 Ok(None) => {
                     log::info!("No previous PR events found, starting from the beginning");
-                    (Utc::now() - chrono::Duration::days(720)).naive_utc()
+                    (Utc::now() - self.lookback_period).naive_utc()
                 }
                 Err(e) => {
                     log::error!("Error retrieving last PR event timestamp: {:?}", e);
