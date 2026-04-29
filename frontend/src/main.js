@@ -117,7 +117,6 @@ import { faTwitter, faFacebook, faLinkedin, faGithub } from '@fortawesome/free-b
 import App from './App.vue'
 
 import Default from './Layout/Wrappers/baseLayout.vue'
-import Pages from './Layout/Wrappers/pagesLayout.vue'
 
 // Add specific icons to library for better tree-shaking
 library.add(
@@ -225,7 +224,6 @@ app.component('b-carousel-slide', BCarouselSlide)
 app.component('b-pagination', BPagination)
 
 app.component('default-layout', Default)
-app.component('userpages-layout', Pages)
 app.component('font-awesome-icon', FontAwesomeIcon)
 
 // Suppress browser extension errors in development

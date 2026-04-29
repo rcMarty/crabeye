@@ -22,24 +22,57 @@ export const useSidebarStore = defineStore('sidebar', () => {
       icon: 'pe-7s-graph1',
       children: [
         {
+          id: 'pr-top-files',
+          title: 'Top Modified Files',
+          route: '/pr/top-files'
+        },
+        {
+          id: 'pr-status',
+          title: 'PR Status Distribution',
+          route: '/pr/status'
+        },
+        {
+          id: 'pr-status-over-time',
+          title: 'State Over Time',
+          route: '/pr/status-over-time'
+        },
+        {
+          id: 'pr-waiting',
+          title: 'Waiting for Review',
+          route: '/pr/waiting'
+        },
+        {
+          id: 'pr-team-files',
+          title: 'Team File Changes',
+          route: '/pr/team-files'
+        },
+        {
           id: 'files-changed',
-          title: 'Files Changed',
+          title: 'Files Changed (Reviewers)',
           route: '/reviewers'
         },
         {
-          id: 'filter*demo',
-          title: 'Filters',
-          route: '/filters'
-        },
+          id: 'pr-history',
+          title: 'PR History',
+          route: '/pr/history'
+        }
+      ]
+    },
+    {
+      id: 'issues-header',
+      type: 'header',
+      title: 'Issues'
+    },
+    {
+      id: 'issues',
+      type: 'submenu',
+      title: 'Issues',
+      icon: 'pe-7s-ticket',
+      children: [
         {
-          id: 'register',
-          title: 'Register',
-          route: '/pages/register-boxed'
-        },
-        {
-          id: 'forgot-password',
-          title: 'Forgot Password',
-          route: '/pages/forgot-password-boxed'
+          id: 'issue-events',
+          title: 'Issue Events',
+          route: '/issues/events'
         }
       ]
     }
@@ -104,7 +137,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
 
     // Find which submenu contains the current route
     const routeMap = {
-      '/pages/': 'pages',
+      '/pr/': 'pull-requests',
+      '/reviewers': 'pull-requests',
+      '/issues/': 'issues',
       '/elements/': 'elements',
       '/components/': 'components',
       '/forms/': 'forms'

@@ -5,9 +5,6 @@
       <div class="app-header-left">
         <SearchBox />
       </div>
-      <div class="app-header-right">
-        <UserArea />
-      </div>
     </div>
     <div class="app-header__mobile-menu">
       <div>
@@ -45,13 +42,11 @@
 import { defineComponent } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import SearchBox from './Header/SearchBox.vue'
-import UserArea from './Header/HeaderUserArea.vue'
 
 export default defineComponent({
   name: 'Header',
   components: {
-    SearchBox,
-    UserArea
+    SearchBox
   },
   setup() {
     const uiStore = useUIStore()

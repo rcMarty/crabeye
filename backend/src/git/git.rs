@@ -5,17 +5,25 @@ use std::collections::HashSet;
 use std::fmt::format;
 use std::path::Path;
 
-pub struct Repo {
+pub(crate) struct Repo {
+    repository_identifier: String,
     repository: Repository,
 }
 
 impl Repo {
-    pub fn init(repository_url: &str, path: &Path) -> anyhow::Result<Self> {
+    pub(crate) fn init(
+        repository_identifier: String,
+        repository_url: &str,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
         if path.exists() {
-            let mut repo = Repository::open(path)
-                .map(|repository| Self { repository })
-                .with_context(|| format!("Failed to open repository {:?}", path));
-            match repo {
+            match Repository::open(path)
+                .map(|repository| Self {
+                    repository_identifier: repository_identifier.clone(),
+                    repository,
+                })
+                .with_context(|| format!("Failed to open repository {:?}", path))
+            {
                 Ok(mut rep) => {
                     log::info!("Repository opened: {:?}", path);
                     rep.update()?;
@@ -25,7 +33,8 @@ impl Repo {
                 Err(e) => {
                     log::warn!("Failed to open repository: {:?}", e);
                     log::info!("Trying to clone repository from {}", repository_url);
-                    let result = Self::clone_repository(repository_url, path);
+                    let result =
+                        Self::clone_repository(repository_identifier, repository_url, path);
                     log::info!("Repository cloned. Ok?:{:?}", result.is_ok());
                     result
                 }
@@ -35,11 +44,15 @@ impl Repo {
                 "Trying to clone repository from {repository_url} to {:?}",
                 path
             );
-            Repo::clone_repository(repository_url, path)
+            Repo::clone_repository(repository_identifier, repository_url, path)
         }
     }
 
-    fn clone_repository(url: &str, path: &Path) -> anyhow::Result<Self> {
+    fn clone_repository(
+        repository_identifier: String,
+        url: &str,
+        path: &Path,
+    ) -> anyhow::Result<Self> {
         let mut fetch_options = FetchOptions::new();
         fetch_options.download_tags(git2::AutotagOption::All);
 
@@ -49,22 +62,17 @@ impl Repo {
             .fetch_options(fetch_options)
             .with_checkout(checkout_builder);
 
-        let repo = builder
+        let repository = builder
             .clone(url, path)
             .with_context(|| format!("Failed to clone repository from {} to {:?}", url, path))?;
 
-        Ok(Self { repository: repo })
+        Ok(Self {
+            repository_identifier,
+            repository,
+        })
     }
 
-    pub fn open(path: &str) -> Self {
-        let repository = Repository::open(path)
-            .context(format!("failed to open repository\nPath: {}", path))
-            .expect("failed to open repository");
-        log::debug!("Repository opened: {:?}", repository.path());
-        Self { repository }
-    }
-
-    pub fn update(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn update(&self) -> anyhow::Result<()> {
         let mut remote = self
             .repository
             .find_remote("origin")
@@ -75,7 +83,7 @@ impl Repo {
         Ok(())
     }
 
-    pub fn modified_files(&self, commit_id: Oid) -> anyhow::Result<Option<HashSet<String>>> {
+    pub(crate) fn modified_files(&self, commit_id: Oid) -> anyhow::Result<Option<HashSet<String>>> {
         let Ok(merge_commit) = self.repository.find_commit(commit_id) else {
             log::warn!("Cannot find commit {}", commit_id);
             return Ok(None);
@@ -105,5 +113,9 @@ impl Repo {
             }
         }
         Ok(Some(files))
+    }
+
+    pub(crate) fn repository_identifier(&self) -> &str {
+        self.repository_identifier.as_str()
     }
 }

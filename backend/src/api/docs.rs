@@ -1,6 +1,7 @@
-use std::sync::Arc;
-use crate::api::app_state;
+use crate::api::AppState;
+use aide::openapi::Tag;
 use aide::swagger::Swagger;
+use aide::transform::TransformOpenApi;
 use aide::{
     axum::{
         routing::{get, get_with},
@@ -10,10 +11,8 @@ use aide::{
     redoc::Redoc,
     scalar::Scalar,
 };
-use aide::openapi::Tag;
-use aide::transform::TransformOpenApi;
 use axum::{response::IntoResponse, Extension, Json};
-use crate::api::app_state::AppState;
+use std::sync::Arc;
 
 pub fn docs_routes(state: AppState) -> ApiRouter {
     aide::generate::infer_responses(true);
@@ -23,7 +22,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/",
             get_with(
                 Scalar::new("/docs/private/api.json")
-                    .with_title("Ranal Redoc API documentation")
+                    .with_title("Crabeye Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -33,7 +32,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/redoc",
             get_with(
                 Redoc::new("/docs/private/api.json")
-                    .with_title("Ranal Redoc API documentation")
+                    .with_title("Crabeye Redoc API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -43,7 +42,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
             "/swagger",
             get_with(
                 Swagger::new("/docs/private/api.json")
-                    .with_title("Ranal Swagger API documentation")
+                    .with_title("Crabeye Swagger API documentation")
                     .axum_handler(),
                 |op| op.description("This documentation page."),
             ),
@@ -60,7 +59,7 @@ pub fn docs_routes(state: AppState) -> ApiRouter {
 }
 
 pub fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
-    api.title("Aide axum Open API for ranal")
+    api.title("Aide axum Open API for crabeye")
         .summary("Rust compiler repository analyzer")
         .description(include_str!("../../readme.md"))
         .tag(Tag {
@@ -73,5 +72,3 @@ pub fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
 async fn serve_docs(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
     Json(api).into_response()
 }
-
-

@@ -23,6 +23,7 @@ export default [
         clearTimeout: 'readonly',
         clearInterval: 'readonly',
         localStorage: 'readonly',
+        fetch: 'readonly',
         
         // Node.js globals
         process: 'readonly',
@@ -91,6 +92,18 @@ export default [
       'vendor/',
       'devtools-stub.js'
     ]
+  },
+  {
+    files: ['**/*.vue'],
+    languageOptions: {
+      parser: vue.parser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+        parser: typescriptParser,
+        extraFileExtensions: ['.vue']
+      }
+    }
   },
   {
     files: ['**/*.{ts,tsx}'],
