@@ -88,6 +88,7 @@ WHERE NOT EXISTS (
     WHERE e.repository = i.repository
       AND e.issue = i.issue
 )
+ORDER BY i.created_at DESC
             "#,
         )
             .fetch_all(&self.pool)
