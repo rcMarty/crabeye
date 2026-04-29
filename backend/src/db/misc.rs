@@ -87,6 +87,7 @@ WHERE NOT EXISTS (
     FROM issue_event_history e
     WHERE e.repository = i.repository
       AND e.issue = i.issue
+      AND e.event != 'created'
 )
 ORDER BY i.created_at DESC
             "#,

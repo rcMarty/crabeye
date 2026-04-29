@@ -649,7 +649,7 @@ SELECT
     t.label,
     t.timestamp,
     t.action,
-    t.is_pr -- is_pr hardcoded
+    t.is_pr
 FROM UNNEST($1::TEXT[], $2::BIGINT[], $3::TEXT[], $4::TIMESTAMP[], $5::TEXT[], $6::BOOLEAN[])
      as t(repository, issue, label, timestamp, action, is_pr)
 ON CONFLICT (repository,issue,timestamp, label) DO NOTHING
