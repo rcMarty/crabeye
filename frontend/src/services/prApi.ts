@@ -293,7 +293,7 @@ export async function getIssueEvents(params: IssueEventsParams): Promise<IssueEv
   sp.set('timestamp', params.timestamp)
 
   const response = await fetch(`${API_BASE_URL}/issue/issue-events/${params.issue}?${sp}`)
-  if (!response.ok) throw new Error(`Failed to fetch issue events: ${response.statusText}`)
+  if (!response.ok) throw new Error(`Failed to fetch issue history: ${response.statusText}`)
   return response.json()
 }
 

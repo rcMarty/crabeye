@@ -10,12 +10,12 @@ CREATE INDEX idx_pr_labels_lookup
 
 -- SEARCH: "Find all ISSUES with label 'bug'"
 CREATE INDEX idx_issue_labels_name
-    ON issue_labels_history (label)
+    ON issue_labels_history (repository, label)
     WHERE is_pr = false;
 
 -- SEARCH: "Find all PRS with label 'bug'"
 CREATE INDEX idx_pr_labels_name
-    ON issue_labels_history (label)
+    ON issue_labels_history (repository, label)
     WHERE is_pr = true;
 
 -- UPSERT OPTIMIZATION (Finding the latest label state) — split for faster writes/reads
