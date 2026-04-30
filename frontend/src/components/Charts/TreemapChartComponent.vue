@@ -34,6 +34,7 @@ export default defineComponent({
     const selected = ref(null)
     const selectedEl = ref(null)
     const computedHeight = ref(props.height || 800)
+    let lastRenderedWidth = 0
 
     function deselect() {
       if (selectedEl.value) selectedEl.value.classList.remove('tm-selected')
@@ -174,15 +175,23 @@ export default defineComponent({
       computedHeight.value = dynamicH
 
       const container = treemapEl.value
-      const containerWidth = container.parentElement?.clientWidth || container.offsetWidth || 900
+      const wrapper = container.parentElement
+      // Use clientWidth minus any potential scrollbar to avoid oscillation
+      const containerWidth = wrapper?.clientWidth || container.offsetWidth || 900
       const containerHeight = dynamicH
+
+      // Skip re-render if width changed by less than 20px (scrollbar jitter)
+      if (lastRenderedWidth > 0 && Math.abs(containerWidth - lastRenderedWidth) < 20) {
+        return
+      }
+      lastRenderedWidth = containerWidth
 
       container.style.width = containerWidth + 'px'
       container.style.height = containerHeight + 'px'
 
       const HEADER_H = 22
       const MIN_RECT = 4
-      const PADDING = 2
+      const PADDING = 4
 
       function renderNode(node, x, y, w, h, level, siblingIdx, path) {
         if (w < MIN_RECT || h < MIN_RECT) return
@@ -285,7 +294,7 @@ export default defineComponent({
       if (treemapEl.value) treemapEl.value.innerHTML = ''
     })
 
-    watch(() => props.data, () => { nextTick(createTreemap) }, { deep: true })
+    watch(() => props.data, () => { lastRenderedWidth = 0; nextTick(createTreemap) }, { deep: true })
 
     return { treemapEl, selected, selectedEl, computedHeight, deselect }
   }
@@ -343,7 +352,7 @@ export default defineComponent({
 .treemap-wrapper {
   position: relative;
   width: 100%;
-  overflow: auto;
+  overflow: hidden;
 }
 
 /* ── inner absolutely-positioned canvas ─ */

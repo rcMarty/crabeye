@@ -55,9 +55,9 @@ export default createRouter({
 
     // Issues
     {
-      path: '/issues/events',
-      name: 'IssueEvents',
-      component: () => import('../pages/issues/IssueEventsPage.vue')
+      path: '/issues/history',
+      name: 'IssueHistory',
+      component: () => import('../pages/issues/IssueHistoryPage.vue')
     }
   ]
 })

@@ -70,9 +70,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
       icon: 'pe-7s-ticket',
       children: [
         {
-          id: 'issue-events',
-          title: 'Issue Events',
-          route: '/issues/events'
+          id: 'issue-history',
+          title: 'Issue History',
+          route: '/issues/history'
         }
       ]
     }

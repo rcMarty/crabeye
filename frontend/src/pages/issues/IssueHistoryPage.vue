@@ -129,7 +129,7 @@ async function fetchData() {
     events.value = await getIssueEvents({ repository: repository.value, issue: num, timestamp: timestamp.value })
     fetched.value = true
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to fetch issue events'
+    error.value = err instanceof Error ? err.message : 'Failed to fetch issue history'
   } finally {
     loading.value = false
   }
@@ -138,7 +138,7 @@ async function fetchData() {
 
 <template>
   <div class="page-wrapper">
-    <h1 class="page-title mb-1"><i class="pe-7s-ticket me-2"></i>Issue Events</h1>
+    <h1 class="page-title mb-1"><i class="pe-7s-ticket me-2"></i>Issue history</h1>
     <p class="text-muted mb-4">View the event history of an issue/PR at a specific point in time.</p>
 
     <!-- Filters -->
