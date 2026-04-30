@@ -8,6 +8,11 @@ CREATE INDEX idx_prs_history_lookup
     ON issue_event_history (repository, issue, timestamp DESC)
     WHERE is_pr = true;
 
+-- index for queries like "Find all PR events of type 'closed' in a repository"
+CREATE INDEX idx_issue_event_history_repo_evt_pr_only
+    ON issue_event_history (repository, event)
+    WHERE is_pr = true;
+
 -- PR state-change events (closed/merged/reopened)
 -- Supports DISTINCT ON (issue) ORDER BY issue, timestamp DESC
 -- and LEAD() OVER (PARTITION BY issue ORDER BY timestamp)
