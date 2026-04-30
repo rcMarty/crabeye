@@ -78,6 +78,15 @@ WHERE fa.repository = 'rust-lang/rust' -- parametr: $1
 GROUP BY fa.file_path
 ORDER BY editions DESC;
 
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+SET enable_indexonlyscan = off;
+
+SET enable_indexscan = on;
+SET enable_bitmapscan = on;
+SET enable_indexonlyscan = on;
+
+
 
 -- ---------------------------------------------------------------------------
 -- Q4: Denní vývoj počtu PR ve stavu „S-waiting-on-review" v časovém rozsahu
@@ -113,7 +122,7 @@ ORDER BY editions DESC;
 explain (ANALYZE, BUFFERS)
 WITH all_transitions AS (SELECT issue, timestamp, event AS event_type
                          FROM issue_event_history
-                         WHERE repository = 'rust-lang/rust'         -- parametr: $1
+                         WHERE repository = 'rust-lang/rust' -- parametr: $1
                            AND is_pr = true
                            AND event IN ('created', 'closed', 'merged', 'reopened')),
      ordered_transitions AS (SELECT issue,
@@ -133,9 +142,9 @@ WITH all_transitions AS (SELECT issue, timestamp, event AS event_type
                                   action,
                                   LEAD(timestamp) OVER (PARTITION BY issue ORDER BY timestamp) AS next_ts
                            FROM issue_labels_history
-                           WHERE repository = 'rust-lang/rust'       -- parametr: $1
+                           WHERE repository = 'rust-lang/rust' -- parametr: $1
                              AND is_pr = true
-                             AND label = 'S-waiting-on-review'),      -- parametr: $4
+                             AND label = 'S-waiting-on-review'), -- parametr: $4
 -- Interval aktivity labelu: [ADDED, následující label-event)
      label_active_periods AS (SELECT issue,
                                      tsrange(timestamp, COALESCE(next_ts, 'infinity'::timestamp),
@@ -148,7 +157,7 @@ WITH all_transitions AS (SELECT issue, timestamp, event AS event_type
                           FROM label_active_periods lap
                                    JOIN open_periods op
                                         ON lap.issue = op.issue
-                                            AND lap.period && op.period    -- && = neprázdný průnik
+                                            AND lap.period && op.period -- && = neprázdný průnik
                           WHERE NOT isempty(lap.period * op.period)),
 -- Každý interval převeden na delta-events: +1 při vstupu do stavu, −1 při výstupu.
 -- Protože LEAD() generuje nepřekrývající se intervaly na PR, běžící SUM
@@ -165,10 +174,10 @@ WITH all_transitions AS (SELECT issue, timestamp, event AS event_type
      -- Kumulativní hodnota před začátkem sledovaného rozsahu (základ pro běžící součet)
      base AS (SELECT COALESCE(SUM(daily_change), 0) AS cnt
               FROM daily_deltas
-              WHERE event_date < '2025-06-01'::date),                -- parametr: $2
+              WHERE event_date < '2025-06-01'::date),            -- parametr: $2
      date_series AS (SELECT d::date AS day
-                     FROM generate_series('2025-06-01'::timestamp,   -- parametr: $2
-                                          '2026-04-04'::timestamp,   -- parametr: $3
+                     FROM generate_series('2025-12-01'::timestamp, -- parametr: $2
+                                          '2026-01-01'::timestamp, -- parametr: $3
                                           '1 day'::interval) d)
 SELECT ds.day                                                                  AS date,
        ((SELECT cnt FROM base)
