@@ -17,16 +17,16 @@ default = ["cli"]
 # Low-level module features
 db = ["dep:anyhow", "dep:chrono", "dep:log", "dep:schemars", "dep:serde", "dep:sqlx"]
 git = [
-	"db",
-	"dep:backoff",
-	"dep:git2",
-	"dep:indicatif",
-	"dep:lazy_static",
-	"dep:octocrab",
-	"dep:reqwest",
-	"dep:rust_team_data",
-	"dep:secrecy",
-	"dep:tokio",
+    "db",
+    "dep:backoff",
+    "dep:git2",
+    "dep:indicatif",
+    "dep:lazy_static",
+    "dep:octocrab",
+    "dep:reqwest",
+    "dep:rust_team_data",
+    "dep:secrecy",
+    "dep:tokio",
 ]
 api = ["db", "dep:aide", "dep:axum", "dep:indexmap", "dep:tower-http", "dep:tokio"]
 monitoring = ["git", "dep:tokio"]
@@ -37,7 +37,7 @@ server = ["api", "monitoring"]
 full = ["cli"]
 
 [dependencies]
-octocrab = { git = "https://github.com/rcMarty/octocrab.git", optional = true } # GitHub API client
+octocrab = { version = "0.50.0", optional = true } # GitHub API client
 git2 = { version = "0.20.4", optional = true } # Git repository management
 axum = { version = "0.8.8", features = ["macros"], optional = true }
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "redoc", "swagger", "scalar", "macros"], optional = true } # automatic api documentation generation
