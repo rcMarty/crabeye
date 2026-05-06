@@ -111,6 +111,9 @@ Then you can access the API docs at `http://localhost:7878/docs`.
 
 [//]: # (Link to database schema [here]&#40;https://dbdiagram.io/d/6791134c37f5d6cbeb969453&#41; TODO add link when ready)
 
+## TODO
+
+- add tests
 
 ## License
 

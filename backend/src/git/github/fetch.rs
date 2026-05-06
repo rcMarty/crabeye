@@ -218,7 +218,9 @@ impl GitHubApi {
 
                     log::debug!("Requesting {page} page of pull requests");
                     match response.items.last().unwrap() {
-                        pr if pr.updated_at.naive_utc() < since => {
+                        pr if pr.updated_at.unwrap_or(pr.created_at.unwrap()).naive_utc()
+                            < since =>
+                        {
                             log::info!("No more pull requests to process, stopping at page {page}");
                             break 'pageLoop;
                         }
@@ -229,7 +231,10 @@ impl GitHubApi {
                                 response.number_of_pages().unwrap_or(10)
                             );
                             log::debug!("Found {} pull requests", response.items.len());
-                            log::debug!("Last PR updated at: {}", pr.updated_at);
+                            log::debug!(
+                                "Last PR updated at: {}",
+                                pr.updated_at.unwrap_or(pr.created_at.unwrap())
+                            );
                             self.parse_prs(
                                 &mut parsed_prs,
                                 &mut parsed_users,
